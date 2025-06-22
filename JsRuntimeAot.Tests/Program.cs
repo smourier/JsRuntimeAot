@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-
-namespace JsRuntimeAot.Tests;
+﻿namespace JsRuntimeAot.Tests;
 
 internal class Program
 {
@@ -8,32 +6,34 @@ internal class Program
     {
         var input = "1+2";
         var sum = JsRuntime.Eval(input);
-        Console.WriteLine($"{input} = {sum}");
+        Console.WriteLine($"{input} => {sum}");
 
         input = "eval(1+2)";
         sum = JsRuntime.Eval(input);
-        Console.WriteLine($"{input} = {sum}");
+        Console.WriteLine($"{input} => {sum}");
 
         using var rt = new JsRuntime();
         rt.WithContext(ctx =>
         {
-            rt.RunScript("function square(n) { return n * n; }");
-            var result = ctx.GlobalObject.CallFunction("square", null, 5);
-            Console.WriteLine(result);
+            input = "function hello(n) { return 'héééééllooooo'; }";
+            rt.RunScript(input);
+            var result = ctx.GlobalObject.CallFunction("hello");
+            Console.WriteLine($"{input} => {result}");
         });
 
         rt.WithContext(ctx =>
         {
-            rt.RunScript("function square(n) { return n * n; }");
-
+            input = "function square(n) { return n * n; }";
+            rt.RunScript(input);
             var sw = Stopwatch.StartNew();
             var glo = ctx.GlobalObject;
-            for (var i = 0; i < 1_000_000; i++)
+            var max = 1_000_000;
+            for (var i = 0; i < max; i++)
             {
                 var result = glo.CallFunction("square", null, 5);
                 //Console.WriteLine(i + ":" + result);
             }
-            Console.WriteLine($"Elapsed: {sw}.");
+            Console.WriteLine($"{input} * {max} elapsed => {sw}.");
         });
 
         GC.Collect();

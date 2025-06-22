@@ -23,6 +23,7 @@
 		<Using Include="JsRt.Interop" />
 		<Using Include="System" />
 		<Using Include="System.Collections.Generic" />
+		<Using Include="System.Diagnostics" />
 		<Using Include="System.Linq" />
 		<Using Include="System.Runtime.CompilerServices" />
 		<Using Include="System.Runtime.InteropServices" />
