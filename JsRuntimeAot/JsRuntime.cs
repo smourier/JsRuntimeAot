@@ -1,26 +1,27 @@
 ﻿namespace JsRt;
 
-public sealed partial class JsRuntime : IDisposable
+public partial class JsRuntime : IDisposable
 {
     public const string JsDll = "jscript9.dll";
 
-    private Dictionary<string, JsValue> _parsedScriptsCache;
-    private JsValue _go;
+    private JsValue? _go;
+    private nint _handle;
 
-    private static object _syncObject;
+    private static object? _syncObject;
     internal static object SyncObject
     {
         get
         {
             if (_syncObject == null)
             {
-                object obj = new object();
+                var obj = new object();
                 Interlocked.CompareExchange(ref _syncObject, obj, null);
             }
             return _syncObject;
         }
     }
 
+    public JsRuntime(JsRuntimeAttributes attributes, JsRuntimeVersion version) => Check(JsCreateRuntime(attributes, version, null, out _handle));
     public JsRuntime()
         : this(JsRuntimeAttributes.JsRuntimeAttributeNone, JsRuntimeVersion.JsRuntimeVersionEdge)
     {
@@ -36,99 +37,41 @@ public sealed partial class JsRuntime : IDisposable
     {
     }
 
-    public JsRuntime(JsRuntimeAttributes attributes, JsRuntimeVersion version)
-    {
-        Check(JsCreateRuntime(attributes, version, null, out nint handle));
-        Handle = handle;
-    }
-
     internal JsRuntime(nint handle)
     {
-        Handle = handle;
+        _handle = handle;
     }
 
-    public bool CacheParsedScripts
-    {
-        get => _parsedScriptsCache != null;
-        set
-        {
-            if (value == CacheParsedScripts)
-                return;
+    public virtual bool CacheParsedScripts { get; set; }
+    public IDictionary<string, JsValue> ParsedScriptCache { get; } = new Dictionary<string, JsValue>();
+    public nint Handle => _handle;
 
-            lock (SyncObject)
-            {
-                if (value)
-                {
-                    _parsedScriptsCache = new Dictionary<string, JsValue>();
-                }
-                else
-                {
-                    _parsedScriptsCache = null;
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Gets the parsed script cache. May be null if CacheParsedScripts is set to false.
-    /// </summary>
-    /// <value>
-    /// The parsed script cache.
-    /// </value>
-    public IDictionary<string, JsValue> ParsedScriptCache => _parsedScriptsCache;
-
-    /// <summary>
-    /// Gets the native handle.
-    /// </summary>
-    /// <value>
-    /// The handle.
-    /// </value>
-    public nint Handle { get; internal set; }
-
-    /// <summary>
-    /// Gets the current memory usage for this runtime.
-    /// </summary>
-    /// <value>
-    /// The memory usage.
-    /// </value>
     public long MemoryUsage
     {
         get
         {
             CheckDisposed();
-            Check(JsGetRuntimeMemoryUsage(Handle, out nint value));
+            Check(JsGetRuntimeMemoryUsage(Handle, out var value));
             return value.ToInt64();
         }
     }
 
-    /// <summary>
-    /// Gets or sets the current memory limit for this runtime.
-    /// </summary>
-    /// <value>
-    /// The memory limit.
-    /// </value>
     public long MemoryLimit
     {
         get
         {
             CheckDisposed();
-            Check(JsGetRuntimeMemoryLimit(Handle, out nint value));
+            Check(JsGetRuntimeMemoryLimit(Handle, out var value));
             return value.ToInt64();
         }
         set
         {
             CheckDisposed();
-            Check(JsSetRuntimeMemoryLimit(Handle, new IntPtr(value)));
+            Check(JsSetRuntimeMemoryLimit(Handle, new nint(value)));
         }
     }
 
-    /// <summary>
-    /// Gets the global object in the current script context.
-    /// </summary>
-    /// <value>
-    /// The global object.
-    /// </value>
-    public JsValue GlobalObject
+    public JsValue? GlobalObject
     {
         get
         {
@@ -162,7 +105,7 @@ public sealed partial class JsRuntime : IDisposable
         }
     }
 
-    public bool ExecutionEnabled
+    public virtual bool ExecutionEnabled
     {
         get
         {
@@ -210,26 +153,13 @@ public sealed partial class JsRuntime : IDisposable
         Check(JsCollectGarbage(Handle));
     }
 
-    public void Dispose()
-    {
-        if (Handle != 0)
-        {
-            JsDisposeRuntime(Handle);
-            Handle = 0;
-        }
-    }
-
-    public uint Idle()
+    public static uint Idle()
     {
         Check(JsIdle(out uint ticks));
         return ticks;
     }
 
-    private void CheckDisposed()
-    {
-        if (Handle == 0)
-            throw new ObjectDisposedException("Engine");
-    }
+    private void CheckDisposed() => ObjectDisposedException.ThrowIf(_handle == 0, "Engine has been disposed.");
 
     public JsContext CreateContext()
     {
@@ -238,11 +168,11 @@ public sealed partial class JsRuntime : IDisposable
         return new JsContext(handle, true);
     }
 
-    public void AddGlobalObject(string name, object value)
+    public void AddGlobalObject(string name, object? value)
     {
         ArgumentNullException.ThrowIfNull(name);
         if (value != null && !Marshal.IsTypeVisibleFromCom(value.GetType()) && !Marshal.IsComObject(value))
-            throw new ArgumentException("Argument type must be ComVisible.", "value");
+            throw new ArgumentException("Argument type must be ComVisible.", nameof(value));
 
         var go = GlobalObject;
         if (go == null)
@@ -251,26 +181,24 @@ public sealed partial class JsRuntime : IDisposable
         go.SetProperty(name, value);
     }
 
-    public static object Eval(string script)
+    public static object? Eval(string script)
     {
-        using JsRuntime rt = new JsRuntime();
-        return rt.CreateContext().Execute<object>(() => rt.RunScript(script));
+        using var rt = new JsRuntime();
+        return rt.CreateContext().Execute(() => rt.RunScript(script));
     }
 
-    public object? RunScript(string script) => RunScript(script, null);
-
-    /// <summary>
-    /// Runs the specified script.
-    /// </summary>
-    /// <param name="script">The script text. May not be null.</param>
-    /// <param name="sourceUrl">The source that identifies the script origin. May be null.</param>
-    /// <returns>
-    /// The result of the evaluation.
-    /// </returns>
-    public object? RunScript(string script, string? sourceUrl)
+    public object? RunScript(string script, string? sourceUrl = null)
     {
-        if (!TryRunScript(script, sourceUrl, out Exception error, out JsValue value))
-            throw error;
+        if (!TryRunScript(script, sourceUrl, out var error, out var value))
+        {
+            if (error != null)
+                throw error;
+
+            return null;
+        }
+
+        if (value == null)
+            return null;
 
         try
         {
@@ -282,23 +210,19 @@ public sealed partial class JsRuntime : IDisposable
         }
     }
 
-    public bool TryRunScript(string script, out Exception error, out JsValue value) => TryRunScript(script, null, out error, out value);
-    public bool TryRunScript(string script, string? sourceUrl, out Exception error, out JsValue value)
+    public bool TryRunScript(string script, out Exception? error, out JsValue? value) => TryRunScript(script, null, out error, out value);
+    public bool TryRunScript(string script, string? sourceUrl, out Exception? error, out JsValue? value)
     {
         ArgumentNullException.ThrowIfNull(script);
-
-        if (sourceUrl == null)
-        {
-            sourceUrl = string.Empty;
-        }
+        sourceUrl ??= string.Empty;
 
         lock (SyncObject)
         {
-            if (_parsedScriptsCache != null && JsContext.Current != null)
+            if (CacheParsedScripts && JsContext.Current != null)
             {
                 // cache per context
                 string key = JsContext.Current.Handle + "\0" + script;
-                if (!_parsedScriptsCache.TryGetValue(key, out JsValue ps))
+                if (!ParsedScriptCache.TryGetValue(key, out var ps))
                 {
                     error = Check(JsParseScript(script, 0, sourceUrl, out nint psHandle), false);
                     if (error != null)
@@ -308,7 +232,7 @@ public sealed partial class JsRuntime : IDisposable
                         return false;
                     }
                     ps = new JsValue(psHandle);
-                    _parsedScriptsCache.Add(key, ps);
+                    ParsedScriptCache.Add(key, ps);
                 }
                 return ps.TryCall(out error, out value);
             }
@@ -325,22 +249,22 @@ public sealed partial class JsRuntime : IDisposable
         return true;
     }
 
-    public JsValue ParseScript(string script, string? sourceUrl = null)
+    public static JsValue? ParseScript(string script, string? sourceUrl = null)
     {
-        if (!TryParseScript(script, sourceUrl, out Exception error, out JsValue value))
-            throw error;
+        if (!TryParseScript(script, sourceUrl, out var error, out var value))
+        {
+            if (error != null)
+                throw error;
+        }
 
         return value;
     }
 
-    public bool TryParseScript(string script, out Exception error, out JsValue parsedScript) => TryParseScript(script, null, out error, out parsedScript);
-    public bool TryParseScript(string script, string sourceUrl, out Exception error, out JsValue parsedScript)
+    public static bool TryParseScript(string script, out Exception? error, out JsValue? parsedScript) => TryParseScript(script, null, out error, out parsedScript);
+    public static bool TryParseScript(string script, string? sourceUrl, out Exception? error, out JsValue? parsedScript)
     {
         ArgumentNullException.ThrowIfNull(script);
-        if (sourceUrl == null)
-        {
-            sourceUrl = string.Empty;
-        }
+        sourceUrl ??= string.Empty;
 
         error = Check(JsParseScript(script, 0, sourceUrl, out nint result), false);
         if (error != null)
@@ -381,7 +305,7 @@ public sealed partial class JsRuntime : IDisposable
     private delegate bool JsThreadServiceCallback(JsBackgroundWorkItemCallback callback, nint callbackData);
 
     [LibraryImport(JsDll)]
-    private static partial JsErrorCode JsCreateRuntime(JsRuntimeAttributes attributes, JsRuntimeVersion runtimeVersion, JsThreadServiceCallback threadService, out nint runtime);
+    private static partial JsErrorCode JsCreateRuntime(JsRuntimeAttributes attributes, JsRuntimeVersion runtimeVersion, JsThreadServiceCallback? threadService, out nint runtime);
 
     [LibraryImport(JsDll)]
     private static partial JsErrorCode JsDisposeRuntime(nint runtime);
@@ -459,7 +383,7 @@ public sealed partial class JsRuntime : IDisposable
     internal static partial JsErrorCode JsGetOwnPropertyDescriptor(nint @object, nint propertyId, out nint propertyDescriptor);
 
     [LibraryImport(JsDll)]
-    internal static partial JsErrorCode JsCallFunction(nint function, IntPtr[] arguments, ushort argumentCount, out nint result);
+    internal static partial JsErrorCode JsCallFunction(nint function, nint[]? arguments, ushort argumentCount, out nint result);
 
     [LibraryImport(JsDll)]
     internal static partial JsErrorCode JsGetIndexedProperty(nint @object, nint index, out nint result);
@@ -476,4 +400,14 @@ public sealed partial class JsRuntime : IDisposable
     [LibraryImport(JsDll)]
     private static partial JsErrorCode JsRelease(nint handle, out int count);
 
+    ~JsRuntime() { Dispose(disposing: false); }
+    public void Dispose() { Dispose(disposing: true); GC.SuppressFinalize(this); }
+    protected virtual void Dispose(bool disposing)
+    {
+        var handle = Interlocked.Exchange(ref _handle, 0);
+        if (handle != 0)
+        {
+            JsDisposeRuntime(handle);
+        }
+    }
 }

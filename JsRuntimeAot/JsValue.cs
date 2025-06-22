@@ -2,14 +2,16 @@
 
 public sealed class JsValue : IDisposable
 {
-    public JsValue(object value)
+    private nint _handle;
+
+    public JsValue(object? value)
     {
-        VariantToValue(value, true, out nint handle);
-        Handle = handle;
-        JsRuntime.Check(JsRuntime.JsGetValueType(Handle, out JsValueType vt));
+        VariantToValue(value, true, out var handle);
+        _handle = handle;
+        JsRuntime.Check(JsRuntime.JsGetValueType(Handle, out var vt));
         ValueType = vt;
 
-        JsRuntime.AddRef(handle, true, out int count);
+        JsRuntime.AddRef(handle, true, out var count);
         if (count > MaxRefCount)
         {
             MaxRefCount = count;
@@ -20,24 +22,20 @@ public sealed class JsValue : IDisposable
 
     internal JsValue(nint handle)
     {
-        Handle = handle;
-        JsRuntime.Check(JsRuntime.JsGetValueType(Handle, out JsValueType vt));
+        _handle = handle;
+        JsRuntime.Check(JsRuntime.JsGetValueType(Handle, out var vt));
         ValueType = vt;
 
-        JsRuntime.AddRef(handle, true, out int count);
+        JsRuntime.AddRef(handle, true, out var count);
         if (count > MaxRefCount)
         {
             MaxRefCount = count;
         }
     }
 
-    public nint Handle { get; private set; }
+    public nint Handle => _handle;
 
-    public static bool IsUndefined(object obj)
-    {
-        var jsv = obj as JsValue;
-        return jsv != null && jsv.ValueType == JsValueType.JsUndefined;
-    }
+    public static bool IsUndefined(object obj) => obj is JsValue jsv && jsv.ValueType == JsValueType.JsUndefined;
 
     public override string ToString()
     {
@@ -49,16 +47,15 @@ public sealed class JsValue : IDisposable
 
     public void Dispose()
     {
-        var h = Handle;
+        var h = Interlocked.Exchange(ref _handle, 0);
         if (h != 0)
         {
-            JsRuntime.Release(h, true, out int count);
+            JsRuntime.Release(h, true, out var count);
             if (count > MaxRefCount)
             {
                 MaxRefCount = count;
             }
         }
-        Handle = 0;
     }
 
     public JsValueType ValueType { get; private set; }
@@ -67,7 +64,7 @@ public sealed class JsValue : IDisposable
     {
         get
         {
-            JsRuntime.Check(JsRuntime.JsValueToVariant(Handle, out object value), false);
+            JsRuntime.Check(JsRuntime.JsValueToVariant(Handle, out var value), false);
             return value;
         }
     }
@@ -79,11 +76,11 @@ public sealed class JsValue : IDisposable
         return value;
     }
 
-    public JsValue Prototype
+    public JsValue? Prototype
     {
         get
         {
-            JsRuntime.Check(JsRuntime.JsGetPrototype(Handle, out nint handle), false);
+            JsRuntime.Check(JsRuntime.JsGetPrototype(Handle, out var handle), false);
             if (handle == 0)
                 return null;
 
@@ -91,18 +88,18 @@ public sealed class JsValue : IDisposable
         }
     }
 
-    public IDictionary<string, JsValue> PropertyValues
+    public IDictionary<string, JsValue?> PropertyValues
     {
         get
         {
             var names = PropertyNames;
             if (names == null)
-                return new Dictionary<string, JsValue>();
+                return new Dictionary<string, JsValue?>();
 
-            var props = new Dictionary<string, JsValue>();
+            var props = new Dictionary<string, JsValue?>();
             foreach (string name in names)
             {
-                props.Add(name, GetProperty<JsValue>(name, null));
+                props.Add(name, GetProperty<JsValue?>(name, null));
             }
             return props;
         }
@@ -114,18 +111,18 @@ public sealed class JsValue : IDisposable
         {
             var names = PropertyNames;
             if (names == null)
-                return null;
+                return [];
 
-            List<JsValue> values = new List<JsValue>();
+            var values = new List<JsValue>();
             foreach (string name in names)
             {
-                JsRuntime.JsGetPropertyIdFromName(name, out nint id);
+                JsRuntime.JsGetPropertyIdFromName(name, out var id);
                 if (id != 0)
                 {
                     JsRuntime.AddRef(id);
                     try
                     {
-                        JsRuntime.JsGetOwnPropertyDescriptor(Handle, id, out nint descriptor);
+                        JsRuntime.JsGetOwnPropertyDescriptor(Handle, id, out var descriptor);
                         if (descriptor != 0)
                         {
                             values.Add(new JsValue(descriptor));
@@ -145,7 +142,7 @@ public sealed class JsValue : IDisposable
     {
         get
         {
-            JsRuntime.Check(JsRuntime.JsGetOwnPropertyNames(Handle, out nint names), false);
+            JsRuntime.Check(JsRuntime.JsGetOwnPropertyNames(Handle, out var names), false);
             if (names == 0)
                 return [];
 
@@ -166,16 +163,16 @@ public sealed class JsValue : IDisposable
         }
     }
 
-    public bool SetProperty(string name, object value) => TrySetProperty(name, value, false, out _);
+    public bool SetProperty(string name, object? value) => TrySetProperty(name, value, false, out _);
 
-    private static Exception? VariantToValue(object variant, bool throwOnError, out nint handle)
+    private static Exception? VariantToValue(object? variant, bool throwOnError, out nint handle)
     {
         var value = variant;
         var error = JsRuntime.Check(JsRuntime.JsVariantToValue(ref value, out handle), throwOnError);
         return error;
     }
 
-    public bool TrySetProperty(string name, object value, bool useStrictRules, out Exception error)
+    public bool TrySetProperty(string name, object? value, bool useStrictRules, out Exception? error)
     {
         ArgumentNullException.ThrowIfNull(name);
 
@@ -211,10 +208,9 @@ public sealed class JsValue : IDisposable
     }
 
     public bool SetProperty(int index, object value) => TrySetProperty(index, value, out _);
-
-    public bool TrySetProperty(int index, object value, out Exception error)
+    public bool TrySetProperty(int index, object? value, out Exception? error)
     {
-        error = VariantToValue(value, false, out nint valueHandle);
+        error = VariantToValue(value, false, out var valueHandle);
         if (error != null)
             return false;
 
@@ -225,13 +221,13 @@ public sealed class JsValue : IDisposable
         return error == null;
     }
 
-    public T GetProperty<T>(string name, T defaultValue)
+    public T? GetProperty<T>(string name, T? defaultValue)
     {
-        if (!TryGetProperty(name, out Exception error, out JsValue value))
+        if (!TryGetProperty(name, out _, out var value) || value == null)
             return defaultValue;
 
         if (typeof(T) == typeof(JsValue))
-            return (T)(object)value;
+            return (T)(object)value!;
 
         try
         {
@@ -243,7 +239,7 @@ public sealed class JsValue : IDisposable
         }
     }
 
-    public bool TryGetProperty(string name, out Exception error, out JsValue value)
+    public bool TryGetProperty(string name, out Exception? error, out JsValue? value)
     {
         ArgumentNullException.ThrowIfNull(name);
 
@@ -258,7 +254,7 @@ public sealed class JsValue : IDisposable
             }
             JsRuntime.AddRef(id);
 
-            error = JsRuntime.Check(JsRuntime.JsGetProperty(Handle, id, out nint valueHandle), false);
+            error = JsRuntime.Check(JsRuntime.JsGetProperty(Handle, id, out var valueHandle), false);
             if (error != null)
             {
                 value = null;
@@ -276,11 +272,11 @@ public sealed class JsValue : IDisposable
 
     public T GetProperty<T>(int index, T defaultValue)
     {
-        if (!TryGetProperty(index, out Exception error, out JsValue value))
+        if (!TryGetProperty(index, out _, out var value) || value == null)
             return defaultValue;
 
         if (typeof(T) == typeof(JsValue))
-            return (T)(object)value; // don't dispose this one since we want the JsValue itself
+            return (T)(object)value!; // don't dispose this one since we want the JsValue itself
 
         try
         {
@@ -292,7 +288,7 @@ public sealed class JsValue : IDisposable
         }
     }
 
-    public bool TryGetProperty(int index, out Exception error, out JsValue value)
+    public bool TryGetProperty(int index, out Exception? error, out JsValue? value)
     {
         nint valueHandle;
         using (var iv = new JsValue(index))
@@ -309,7 +305,7 @@ public sealed class JsValue : IDisposable
         return true;
     }
 
-    private static void Dispose(IEnumerable<JsValue> arguments)
+    private static void Dispose(IEnumerable<JsValue>? arguments)
     {
         if (arguments == null)
             return;
@@ -323,40 +319,40 @@ public sealed class JsValue : IDisposable
         }
     }
 
-    private static JsValue[]? Convert(object[] arguments)
+    private static JsValue[]? Convert(object?[]? arguments)
     {
         if (arguments == null || arguments.Length == 0)
             return null;
 
-        JsValue[] values = new JsValue[arguments.Length];
-        for (int i = 0; i < arguments.Length; i++)
+        var values = new JsValue[arguments.Length];
+        for (var i = 0; i < arguments.Length; i++)
         {
             values[i] = new JsValue(arguments[i]);
         }
         return values;
     }
 
-    public T CallFunction<T>(string name, T defaultValue, params object[] arguments)
+    public T? CallFunction<T>(string name, T? defaultValue, params object[] arguments)
     {
         using var fn = GetProperty<JsValue>(name, null);
         if (fn == null || IsUndefined(fn))
             return defaultValue;
 
-        JsValue ret = null;
+        JsValue? value = null;
         try
         {
-            if (!fn.TryCall(out Exception error, out ret, arguments))
+            if (!fn.TryCall(out var error, out value, arguments) || value == null)
                 return defaultValue;
 
-            return ChangeType(ret.Value, defaultValue);
+            return ChangeType(value.Value, defaultValue);
         }
         finally
         {
-            ret?.Dispose();
+            value?.Dispose();
         }
     }
 
-    public object? Call(params object[] arguments)
+    public object? Call(params object?[]? arguments)
     {
         var args = Convert(arguments);
         try
@@ -369,10 +365,15 @@ public sealed class JsValue : IDisposable
         }
     }
 
-    public object Call(JsValue[] arguments)
+    public object? Call(JsValue?[]? arguments)
     {
-        if (!TryCall(out Exception error, out JsValue value, arguments))
-            throw error;
+        if (!TryCall(out var error, out var value, arguments) || value == null)
+        {
+            if (error != null)
+                throw error;
+
+            return null;
+        }
 
         try
         {
@@ -384,7 +385,7 @@ public sealed class JsValue : IDisposable
         }
     }
 
-    public T CallWithDefault<T>(T defaultValue, params object[] arguments)
+    public T? CallWithDefault<T>(T? defaultValue, params object[]? arguments)
     {
         var args = Convert(arguments);
         try
@@ -397,13 +398,16 @@ public sealed class JsValue : IDisposable
         }
     }
 
-    public T CallWithDefault<T>(T defaultValue, JsValue[] arguments)
+    public T CallWithDefault<T>(T defaultValue, JsValue[]? arguments)
     {
-        if (!TryCall(out var error, out var value, arguments))
+        if (!TryCall(out _, out var value, arguments))
             return defaultValue;
 
         if (typeof(T) == typeof(JsValue))
-            return (T)(object)value;
+            return (T)(object)value!;
+
+        if (value == null)
+            return defaultValue;
 
         try
         {
@@ -415,7 +419,7 @@ public sealed class JsValue : IDisposable
         }
     }
 
-    public bool TryCall(out Exception error, out JsValue value, params object[] arguments)
+    public bool TryCall(out Exception? error, out JsValue? value, params object?[]? arguments)
     {
         var args = Convert(arguments);
         try
@@ -428,19 +432,19 @@ public sealed class JsValue : IDisposable
         }
     }
 
-    public bool TryCall(out Exception error, out JsValue value, JsValue[] arguments)
+    public bool TryCall(out Exception? error, out JsValue? value, JsValue?[]? arguments)
     {
-        IntPtr[] args = null;
+        nint[]? args = null;
         if (arguments != null && arguments.Length > 0)
         {
-            args = new IntPtr[arguments.Length];
-            for (int i = 0; i < arguments.Length; i++)
+            args = new nint[arguments.Length];
+            for (var i = 0; i < arguments.Length; i++)
             {
-                args[i] = arguments[i].Handle;
+                args[i] = arguments[i]?.Handle ?? 0;
             }
         }
 
-        error = JsRuntime.Check(JsRuntime.JsCallFunction(Handle, args, (ushort)(args != null ? args.Length : 0), out nint result), false);
+        error = JsRuntime.Check(JsRuntime.JsCallFunction(Handle, args, (ushort)(args != null ? args.Length : 0), out var result), false);
         if (error != null)
         {
             value = null;

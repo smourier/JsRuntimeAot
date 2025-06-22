@@ -6,7 +6,7 @@ public sealed class JsContext : IDisposable
 
     private nint _handle;
 
-    internal JsContext(IntPtr handle, bool addRef)
+    internal JsContext(nint handle, bool addRef)
     {
         _handle = handle;
         if (addRef)
@@ -19,12 +19,12 @@ public sealed class JsContext : IDisposable
         }
     }
 
-    public IntPtr Handle => _handle;
+    public nint Handle => _handle;
     public JsRuntime? Runtime
     {
         get
         {
-            JsRuntime.Check(JsRuntime.JsGetRuntime(Handle, out nint handle));
+            JsRuntime.Check(JsRuntime.JsGetRuntime(Handle, out var handle));
             if (handle == 0)
                 return null;
 
@@ -51,7 +51,7 @@ public sealed class JsContext : IDisposable
     {
         get
         {
-            JsRuntime.Check(JsRuntime.JsGetCurrentContext(out nint handle));
+            JsRuntime.Check(JsRuntime.JsGetCurrentContext(out var handle));
             return handle != 0 ? new JsContext(handle, false) : null;
         }
 

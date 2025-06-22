@@ -3,7 +3,7 @@ namespace JsRt;
 [Serializable]
 public partial class JsRuntimeException : Exception
 {
-    internal JsRuntimeException(JsErrorCode code, JsValue error)
+    internal JsRuntimeException(JsErrorCode code, JsValue? error)
         : base(GetMessage(code, error))
     {
         Code = code;
@@ -81,7 +81,7 @@ public partial class JsRuntimeException : Exception
         _ => "An unknown error in the engine has occurred.",
     };
 
-    private static string GetMessage(JsErrorCode code, JsValue error)
+    private static string GetMessage(JsErrorCode code, JsValue? error)
     {
         var text = new StringBuilder(GetErrorText(code));
         if (error != null)
