@@ -6,12 +6,19 @@
 		<IsAotCompatible>true</IsAotCompatible>
 		<RootNamespace>JsRt</RootNamespace>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<Using Include="System" />
+		<Using Include="System.Collections" />
 		<Using Include="System.Collections.Generic" />
+		<Using Include="System.Linq" />
+		<Using Include="System.Runtime.CompilerServices" />
 		<Using Include="System.Runtime.InteropServices" />
+		<Using Include="System.Runtime.Versioning" />
+		<Using Include="JsRt.Interop" />
+		<Using Include="System.Reflection" />
 		<Using Include="System.Text" />
 		<Using Include="System.Threading" />
 	</ItemGroup>

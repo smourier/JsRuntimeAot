@@ -6,14 +6,28 @@
 		<Nullable>enable</Nullable>
 		<PublishAot>true</PublishAot>
 		<InvariantGlobalization>true</InvariantGlobalization>
+		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
 	</PropertyGroup>
 
 	<ItemGroup>
-	  <ProjectReference Include="..\JsRuntimeAot\JsRuntimeAot.csproj" />
+		<Compile Include="..\JsRuntimeAot\Properties\AssemblyVersionInfo.cs" Link="Properties\AssemblyVersionInfo.cs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\JsRuntimeAot\JsRuntimeAot.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<Using Include="System" />
+		<Using Include="System.Collections.Generic" />
+		<Using Include="System.Linq" />
+		<Using Include="System.Runtime.CompilerServices" />
+		<Using Include="System.Runtime.InteropServices" />
+		<Using Include="System.Runtime.Versioning" />
+		<Using Include="JsRt" />
+		<Using Include="System.Reflection" />
+		<Using Include="System.Text" />
+		<Using Include="System.Threading" />
 	</ItemGroup>
 
 </Project>

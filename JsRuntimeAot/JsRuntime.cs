@@ -302,7 +302,9 @@ public partial class JsRuntime : IDisposable
     }
 
     private delegate void JsBackgroundWorkItemCallback(nint callbackData);
-    private delegate bool JsThreadServiceCallback(JsBackgroundWorkItemCallback callback, nint callbackData);
+
+    [return: MarshalAs(UnmanagedType.U1)]
+    private delegate bool JsThreadServiceCallback(nint callback, nint callbackData);
 
     [LibraryImport(JsDll)]
     private static partial JsErrorCode JsCreateRuntime(JsRuntimeAttributes attributes, JsRuntimeVersion runtimeVersion, JsThreadServiceCallback? threadService, out nint runtime);
@@ -334,8 +336,8 @@ public partial class JsRuntime : IDisposable
     [LibraryImport(JsDll)]
     private static partial JsErrorCode JsEnableRuntimeExecution(nint runtime);
 
-    [DllImport(JsDll)]
-    private static extern JsErrorCode JsIsRuntimeExecutionDisabled(nint runtime, out bool isDisabled);
+    [LibraryImport(JsDll)]
+    private static partial JsErrorCode JsIsRuntimeExecutionDisabled(nint runtime, [MarshalAs(UnmanagedType.U1)] out bool isDisabled);
 
     [LibraryImport(JsDll)]
     private static partial JsErrorCode JsCreateContext(nint runtime, nint debugApplication, out nint newContext);
@@ -358,14 +360,14 @@ public partial class JsRuntime : IDisposable
     [LibraryImport(JsDll)]
     internal static partial JsErrorCode JsGetProperty(nint @object, nint propertyId, out nint value);
 
-    [DllImport(JsDll)]
-    internal static extern JsErrorCode JsSetProperty(nint @object, nint propertyId, nint value, bool useStrictRules);
+    [LibraryImport(JsDll)]
+    internal static partial JsErrorCode JsSetProperty(nint @object, nint propertyId, nint value, [MarshalAs(UnmanagedType.Bool)] bool useStrictRules);
 
-    [DllImport(JsDll)]
-    internal static extern JsErrorCode JsVariantToValue(ref object variant, out nint value);
+    [LibraryImport(JsDll)]
+    internal static partial JsErrorCode JsVariantToValue(in VARIANT variant, out nint value);
 
-    [DllImport(JsDll)]
-    internal static extern JsErrorCode JsValueToVariant(nint value, out object variant);
+    [LibraryImport(JsDll)]
+    internal static partial JsErrorCode JsValueToVariant(nint value, out VARIANT variant);
 
     [LibraryImport(JsDll)]
     internal static partial JsErrorCode JsGetValueType(nint value, out JsValueType type);
@@ -383,7 +385,7 @@ public partial class JsRuntime : IDisposable
     internal static partial JsErrorCode JsGetOwnPropertyDescriptor(nint @object, nint propertyId, out nint propertyDescriptor);
 
     [LibraryImport(JsDll)]
-    internal static partial JsErrorCode JsCallFunction(nint function, nint[]? arguments, ushort argumentCount, out nint result);
+    internal static partial JsErrorCode JsCallFunction(nint function, in nint[]? arguments, ushort argumentCount, out nint result);
 
     [LibraryImport(JsDll)]
     internal static partial JsErrorCode JsGetIndexedProperty(nint @object, nint index, out nint result);

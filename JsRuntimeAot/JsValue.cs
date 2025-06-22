@@ -60,18 +60,19 @@ public sealed class JsValue : IDisposable
 
     public JsValueType ValueType { get; private set; }
 
-    public object Value
+    public object? Value
     {
         get
         {
-            JsRuntime.Check(JsRuntime.JsValueToVariant(Handle, out var value), false);
-            return value;
+            JsRuntime.Check(JsRuntime.JsValueToVariant(Handle, out var v), false);
+            using var variant = Variant.Attach(ref v);
+            return variant.Value;
         }
     }
 
-    public object DetachValue()
+    public object? DetachValue()
     {
-        object value = Value;
+        var value = Value;
         Dispose();
         return value;
     }
@@ -165,10 +166,10 @@ public sealed class JsValue : IDisposable
 
     public bool SetProperty(string name, object? value) => TrySetProperty(name, value, false, out _);
 
-    private static Exception? VariantToValue(object? variant, bool throwOnError, out nint handle)
+    private static Exception? VariantToValue(object? value, bool throwOnError, out nint handle)
     {
-        var value = variant;
-        var error = JsRuntime.Check(JsRuntime.JsVariantToValue(ref value, out handle), throwOnError);
+        using var v = new Variant(value);
+        var error = JsRuntime.Check(JsRuntime.JsVariantToValue(v.Detached, out handle), throwOnError);
         return error;
     }
 
@@ -455,7 +456,7 @@ public sealed class JsValue : IDisposable
         return true;
     }
 
-    public static T ChangeType<T>(object value, T defaultValue)
+    public static T ChangeType<T>(object? value, T defaultValue)
     {
         if (value == null)
             return defaultValue;
