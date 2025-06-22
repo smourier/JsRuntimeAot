@@ -60,13 +60,25 @@ public sealed class JsValue : IDisposable
 
     public JsValueType ValueType { get; private set; }
 
-    public object? Value
+    public unsafe object? Value
     {
         get
         {
             JsRuntime.Check(JsRuntime.JsValueToVariant(Handle, out var v), false);
             using var variant = Variant.Attach(ref v);
-            return variant.Value;
+            var value = variant.Value;
+            //if (value is IDispatch disp)
+            //{
+            //    var raw = new VARIANT();
+            //    var hr = disp.Invoke(0, Guid.Empty, 0, DISPATCH_FLAGS.DISPATCH_PROPERTYGET, new DISPPARAMS(), (nint)(&raw), 0, 0);
+            //    var z = hr;
+            //    var t = raw.Anonymous.Anonymous.vt;
+            //    Console.WriteLine(t);
+            //    using var vv = Variant.Attach(ref raw);
+            //    return vv.Value;
+            //}
+
+            return value;
         }
     }
 
@@ -464,7 +476,7 @@ public sealed class JsValue : IDisposable
         if (value is T t)
             return t;
 
-        return (T)value;
+        return (T)System.Convert.ChangeType(value, typeof(T), CultureInfo.InvariantCulture);
     }
 }
 

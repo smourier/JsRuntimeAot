@@ -31,15 +31,16 @@ global using global::JsRt.Interop;
 global using global::System;
 global using global::System.Collections;
 global using global::System.Collections.Generic;
+global using global::System.Globalization;
 global using global::System.Linq;
 global using global::System.Reflection;
 global using global::System.Runtime.CompilerServices;
 global using global::System.Runtime.InteropServices;
+global using global::System.Runtime.InteropServices.Marshalling;
 global using global::System.Runtime.Versioning;
 global using global::System.Text;
 global using global::System.Threading;
 using System.ComponentModel;
-using System.Runtime.InteropServices.Marshalling;
 
 #pragma warning disable IDE0079 // Remove unnecessary suppression
 #pragma warning disable IDE0130 // Namespace does not match folder structure
@@ -790,13 +791,25 @@ namespace JsRt
 	
 	    public JsValueType ValueType { get; private set; }
 	
-	    public object? Value
+	    public unsafe object? Value
 	    {
 	        get
 	        {
 	            JsRuntime.Check(JsRuntime.JsValueToVariant(Handle, out var v), false);
 	            using var variant = Variant.Attach(ref v);
-	            return variant.Value;
+	            var value = variant.Value;
+	            //if (value is IDispatch disp)
+	            //{
+	            //    var raw = new VARIANT();
+	            //    var hr = disp.Invoke(0, Guid.Empty, 0, DISPATCH_FLAGS.DISPATCH_PROPERTYGET, new DISPPARAMS(), (nint)(&raw), 0, 0);
+	            //    var z = hr;
+	            //    var t = raw.Anonymous.Anonymous.vt;
+	            //    Console.WriteLine(t);
+	            //    using var vv = Variant.Attach(ref raw);
+	            //    return vv.Value;
+	            //}
+	
+	            return value;
 	        }
 	    }
 	
@@ -1194,7 +1207,7 @@ namespace JsRt
 	        if (value is T t)
 	            return t;
 	
-	        return (T)value;
+	        return (T)System.Convert.ChangeType(value, typeof(T), CultureInfo.InvariantCulture);
 	    }
 	}
 	
@@ -2122,6 +2135,23 @@ namespace JsRt.Interop
 	    public static implicit operator CHAR(sbyte value) => new(value);
 	}
 	
+	[Flags]
+	public enum DISPATCH_FLAGS : ushort
+	{
+	    DISPATCH_METHOD = 1,
+	    DISPATCH_PROPERTYGET = 2,
+	    DISPATCH_PROPERTYPUT = 4,
+	    DISPATCH_PROPERTYPUTREF = 8,
+	}
+	
+	public partial struct DISPPARAMS
+	{
+	    public nint rgvarg;
+	    public nint rgdispidNamedArgs;
+	    public uint cArgs;
+	    public uint cNamedArgs;
+	}
+	
 	internal partial struct FILETIME
 	{
 	    public uint dwLowDateTime;
@@ -2267,6 +2297,26 @@ namespace JsRt.Interop
 	    public static bool operator !=(HRESULT left, HRESULT right) => !left.Equals(right);
 	    public static implicit operator int(HRESULT value) => value.Value;
 	    public static implicit operator HRESULT(int value) => new(value);
+	}
+	
+	[GeneratedComInterface, Guid("00020400-0000-0000-c000-000000000046")]
+	internal partial interface IDispatch
+	{
+	    [PreserveSig]
+	    [return: MarshalAs(UnmanagedType.Error)]
+	    HRESULT GetTypeInfoCount(out uint pctinfo);
+	
+	    [PreserveSig]
+	    [return: MarshalAs(UnmanagedType.Error)]
+	    HRESULT GetTypeInfo(uint iTInfo, uint lcid, out nint ppTInfo);
+	
+	    [PreserveSig]
+	    [return: MarshalAs(UnmanagedType.Error)]
+	    HRESULT GetIDsOfNames(in Guid riid, [In][MarshalUsing(CountElementName = nameof(cNames))] PWSTR[] rgszNames, uint cNames, uint lcid, [In][Out][MarshalUsing(CountElementName = nameof(cNames))] int[] rgDispId);
+	
+	    [PreserveSig]
+	    [return: MarshalAs(UnmanagedType.Error)]
+	    HRESULT Invoke(int dispIdMember, in Guid riid, uint lcid, DISPATCH_FLAGS wFlags, in DISPPARAMS pDispParams, nint /* optional VARIANT* */ pVarResult, nint /* optional EXCEPINFO* */ pExcepInfo, nint /* optional uint* */ puArgErr);
 	}
 	
 	internal partial struct PSTR // not disposable as we don't know here who allocated it

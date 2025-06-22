@@ -1,12 +1,11 @@
-﻿using JsRt;
-
-namespace JsRuntimeAot.Tests;
+﻿namespace JsRuntimeAot.Tests;
 
 internal class Program
 {
     static void Main(string[] args)
     {
-        var sum = JsRuntime.Eval("[1 + 2]");
-        Console.WriteLine($"1 + 2 = {sum}");
+        var input = "2 / 3.2";
+        var sum = JsRuntime.Eval(input);
+        Console.WriteLine($"{input} = {sum}");
     }
 }
