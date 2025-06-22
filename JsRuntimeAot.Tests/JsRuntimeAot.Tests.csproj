@@ -5,6 +5,7 @@
 		<TargetFramework>net9.0</TargetFramework>
 		<Nullable>enable</Nullable>
 		<PublishAot>true</PublishAot>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<InvariantGlobalization>true</InvariantGlobalization>
 		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
 	</PropertyGroup>
@@ -18,13 +19,14 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<Using Include="JsRt" />
+		<Using Include="JsRt.Interop" />
 		<Using Include="System" />
 		<Using Include="System.Collections.Generic" />
 		<Using Include="System.Linq" />
 		<Using Include="System.Runtime.CompilerServices" />
 		<Using Include="System.Runtime.InteropServices" />
 		<Using Include="System.Runtime.Versioning" />
-		<Using Include="JsRt" />
 		<Using Include="System.Reflection" />
 		<Using Include="System.Text" />
 		<Using Include="System.Threading" />

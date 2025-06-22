@@ -1,6 +1,6 @@
 ﻿namespace JsRt.Interop;
 
-public partial struct HRESULT(int value) : IEquatable<HRESULT>
+public partial struct HRESULT(int value) : IEquatable<HRESULT>, IFormattable
 {
     public static readonly HRESULT Null = new();
 
@@ -43,27 +43,12 @@ public partial struct HRESULT(int value) : IEquatable<HRESULT>
     }
 
     public override readonly string ToString() => ToString(null, null);
-    public readonly string ToString(string? format, IFormatProvider? formatProvider)
+    public readonly string ToString(string? format, IFormatProvider? formatProvider) => (format?.ToLowerInvariant()) switch
     {
-        switch (format?.ToLowerInvariant())
-        {
-            case "i":
-                return Value.ToString();
-
-            case "u":
-                return UValue.ToString();
-
-            case "x":
-                return "0x" + Value.ToString("X8");
-
-            default: // f
-                var name = ToString("n", formatProvider);
-                if (!string.IsNullOrEmpty(name))
-                    return name + " (0x" + Value.ToString("X8") + ")";
-
-                return "0x" + Value.ToString("X8");
-        }
-    }
+        "i" => Value.ToString(),
+        "u" => UValue.ToString(),
+        _ => "0x" + Value.ToString("X8"),
+    };
 
     public static HRESULT FromWin32(uint error)
     {

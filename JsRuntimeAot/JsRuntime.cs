@@ -5,10 +5,13 @@ public partial class JsRuntime : IDisposable
     public const string JsDll = "jscript9.dll";
 
     private readonly Lock _lock = new();
-    private JsValue? _go;
     private nint _handle;
 
-    public JsRuntime(JsRuntimeAttributes attributes, JsRuntimeVersion version) => Check(JsCreateRuntime(attributes, version, null, out _handle));
+    public JsRuntime(JsRuntimeAttributes attributes, JsRuntimeVersion version)
+    {
+        Check(JsCreateRuntime(attributes, version, null, out _handle));
+    }
+
     public JsRuntime()
         : this(JsRuntimeAttributes.JsRuntimeAttributeNone, JsRuntimeVersion.JsRuntimeVersionEdge)
     {
@@ -35,7 +38,6 @@ public partial class JsRuntime : IDisposable
     public virtual bool CacheParsedScripts { get; set; }
     public IDictionary<string, JsValue> ParsedScriptCache { get; } = new Dictionary<string, JsValue>();
     public nint Handle => _handle;
-
     public long MemoryUsage
     {
         get
@@ -58,40 +60,6 @@ public partial class JsRuntime : IDisposable
         {
             CheckDisposed();
             Check(JsSetRuntimeMemoryLimit(Handle, new nint(value)));
-        }
-    }
-
-    public JsValue? GlobalObject
-    {
-        get
-        {
-            lock (_lock)
-            {
-                if (_go == null)
-                {
-                    JsGetGlobalObject(out var go);
-                    if (go == 0)
-                        return null;
-
-                    _go = new JsValue(go);
-                }
-                return _go;
-            }
-        }
-    }
-
-    public Version? EngineVersion
-    {
-        get
-        {
-            var go = GlobalObject;
-            if (go == null)
-                return null;
-
-            var major = go.CallFunction<int>("ScriptEngineMajorVersion");
-            var minor = go.CallFunction<int>("ScriptEngineMinorVersion");
-            var build = go.CallFunction<int>("ScriptEngineBuildVersion");
-            return new Version(major, minor, Environment.OSVersion.Version.Build, build);
         }
     }
 
@@ -133,19 +101,6 @@ public partial class JsRuntime : IDisposable
         CheckDisposed();
         Check(JsCreateContext(Handle, 0, out var handle));
         return new JsContext(handle, true);
-    }
-
-    public virtual void AddGlobalObject(string name, object? value)
-    {
-        ArgumentNullException.ThrowIfNull(name);
-        if (value != null && !Marshal.IsTypeVisibleFromCom(value.GetType()) && !Marshal.IsComObject(value))
-            throw new ArgumentException("Argument type must be ComVisible.", nameof(value));
-
-        var go = GlobalObject;
-        if (go == null)
-            return;
-
-        go.SetProperty(name, value);
     }
 
     public virtual object? RunScript(string script, string? sourceUrl = null)
@@ -192,6 +147,7 @@ public partial class JsRuntime : IDisposable
                         value = null;
                         return false;
                     }
+
                     ps = new JsValue(psHandle);
                     ParsedScriptCache.Add(key, ps);
                 }
@@ -328,7 +284,7 @@ public partial class JsRuntime : IDisposable
     protected internal static partial JsErrorCode JsGetOwnPropertyDescriptor(nint @object, nint propertyId, out nint propertyDescriptor);
 
     [LibraryImport(JsDll)]
-    protected internal static partial JsErrorCode JsCallFunction(nint function, [In] nint[] arguments, ushort argumentCount, out nint result);
+    protected internal static partial JsErrorCode JsCallFunction(nint function, [In][MarshalUsing(CountElementName = nameof(argumentCount))] nint[] arguments, ushort argumentCount, out nint result);
 
     [LibraryImport(JsDll)]
     protected internal static partial JsErrorCode JsGetIndexedProperty(nint @object, nint index, out nint result);
@@ -341,6 +297,18 @@ public partial class JsRuntime : IDisposable
 
     [LibraryImport(JsDll)]
     protected internal static partial JsErrorCode JsAddRef(nint handle, out int count);
+
+    [LibraryImport(JsDll)]
+    protected internal static partial JsErrorCode JsGetUndefinedValue(out nint handle);
+
+    [LibraryImport(JsDll)]
+    protected internal static partial JsErrorCode JsGetNullValue(out nint handle);
+
+    [LibraryImport(JsDll)]
+    protected internal static partial JsErrorCode JsGetFalseValue(out nint handle);
+
+    [LibraryImport(JsDll)]
+    protected internal static partial JsErrorCode JsGetTrueValue(out nint handle);
 
     [LibraryImport(JsDll)]
     protected internal static partial JsErrorCode JsRelease(nint handle, out int count);

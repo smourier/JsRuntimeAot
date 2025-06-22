@@ -186,6 +186,7 @@ public class JsValue : IDisposable
         return error == null;
     }
 
+    public virtual object? GetProperty(string name, object? defaultValue = default) => GetProperty<object?>(name, defaultValue);
     public virtual T? GetProperty<T>(string name, T? defaultValue = default)
     {
         if (!TryGetProperty(name, out _, out var jsValue) || IsNullOfUndefined(jsValue))
@@ -196,7 +197,7 @@ public class JsValue : IDisposable
 
         try
         {
-            if (TryChangeType<T>(jsValue, out var value))
+            if (TryChangeType<T>(jsValue!.Value, out var value))
                 return value;
 
             return defaultValue;
@@ -248,7 +249,7 @@ public class JsValue : IDisposable
 
         try
         {
-            if (TryChangeType<T>(jsValue, out var value))
+            if (TryChangeType<T>(jsValue!.Value, out var value))
                 return value;
 
             return defaultValue;
@@ -268,10 +269,12 @@ public class JsValue : IDisposable
             value = null;
             return false;
         }
+
         value = new JsValue(valueHandle);
         return true;
     }
 
+    public virtual object? CallFunction(string name, params object[] arguments) => CallFunction<object?>(name, arguments);
     public virtual T? CallFunction<T>(string name, params object[] arguments)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -294,13 +297,13 @@ public class JsValue : IDisposable
         JsValue? jsValue = null;
         try
         {
-            if (!fn.TryCall(out var error, out jsValue, arguments) || IsNullOfUndefined(jsValue))
+            if (!fn!.TryCall(out var error, out jsValue, arguments) || IsNullOfUndefined(jsValue))
             {
                 value = default;
                 return false;
             }
 
-            return TryChangeType(jsValue, out value);
+            return TryChangeType(jsValue!.Value, out value);
         }
         finally
         {
@@ -308,8 +311,9 @@ public class JsValue : IDisposable
         }
     }
 
-    public virtual object? Call(params object?[]? arguments)
+    public virtual object? Call(params object?[] arguments)
     {
+        ArgumentNullException.ThrowIfNull(arguments);
         var args = Convert(arguments);
         try
         {
@@ -321,8 +325,9 @@ public class JsValue : IDisposable
         }
     }
 
-    public virtual object? Call(JsValue?[]? arguments)
+    public virtual object? Call(JsValue[] arguments)
     {
+        ArgumentNullException.ThrowIfNull(arguments);
         if (!TryCall(out var error, out var jsValue, arguments) || IsNullOfUndefined(jsValue))
         {
             if (error != null)
@@ -333,15 +338,15 @@ public class JsValue : IDisposable
 
         try
         {
-            return jsValue.Value;
+            return jsValue!.Value;
         }
         finally
         {
-            jsValue.Dispose();
+            jsValue!.Dispose();
         }
     }
 
-    public virtual bool TryCall(out Exception? error, out JsValue? value, params object?[]? arguments)
+    public virtual bool TryCall(out Exception? error, out JsValue? value, params object?[] arguments)
     {
         var args = Convert(arguments);
         try
@@ -354,20 +359,13 @@ public class JsValue : IDisposable
         }
     }
 
-    public virtual bool TryCall(out Exception? error, out JsValue? value, JsValue?[]? arguments)
+    public virtual bool TryCall(out Exception? error, out JsValue? value, JsValue[] arguments)
     {
+        ArgumentNullException.ThrowIfNull(arguments);
         var args = new List<nint>();
-        if (arguments != null)
+        foreach (var arg in arguments)
         {
-            foreach (var arg in arguments)
-            {
-                if (arg == null)
-                {
-                    args.Add(0);
-                    continue;
-                }
-                args.Add(arg.Handle);
-            }
+            args.Add(arg.Handle);
         }
 
         error = JsRuntime.Check(JsRuntime.JsCallFunction(Handle, [.. args], (ushort)args.Count, out var result), false);
@@ -398,16 +396,24 @@ public class JsValue : IDisposable
 
     public static int MaxRefCount { get; set; }
 
-    public static JsValue FromObject(object? value)
+    public static JsValue FromObject(object? value, bool throwOnError = true)
     {
-        VariantToValue(value, true, out var handle);
-        var jsv = new JsValue(handle);
-        JsRuntime.AddRef(handle, true, out var count);
-        if (count > MaxRefCount)
+        if (value is JsValue jsv)
+            return jsv;
+
+        var error = VariantToValue(value, true, out var handle);
+        if (error != null)
         {
-            MaxRefCount = count;
+            if (throwOnError)
+                throw new JsRuntimeException(error);
+
+            if (JsContext.Current == null)
+                throw new JsRuntimeException("No current context available to convert the value.");
+
+            return JsContext.Current.Null;
         }
-        return jsv;
+
+        return new JsValue(handle);
     }
 
     public static bool IsNullOfUndefined(object? obj) => obj is null || IsUndefined(obj);
@@ -456,25 +462,16 @@ public class JsValue : IDisposable
         return error;
     }
 
-    private static void Dispose(IEnumerable<JsValue>? arguments)
+    private static void Dispose(IEnumerable<JsValue> arguments)
     {
-        if (arguments == null)
-            return;
-
         foreach (var arg in arguments)
         {
-            if (arg == null)
-                continue;
-
             arg.Dispose();
         }
     }
 
-    private static JsValue[]? Convert(object?[]? arguments)
+    private static JsValue[] Convert(object?[] arguments)
     {
-        if (arguments == null || arguments.Length == 0)
-            return null;
-
         var values = new JsValue[arguments.Length];
         for (var i = 0; i < arguments.Length; i++)
         {

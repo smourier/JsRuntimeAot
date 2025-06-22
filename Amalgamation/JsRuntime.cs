@@ -41,18 +41,19 @@ global using global::System.Runtime.InteropServices.Marshalling;
 global using global::System.Runtime.Versioning;
 global using global::System.Text;
 global using global::System.Threading;
+global using global::System.Threading.Tasks;
 
 #pragma warning disable IDE0079 // Remove unnecessary suppression
 #pragma warning disable IDE0130 // Namespace does not match folder structure
 
 namespace JsRt
 {
-	public delegate void JsAction();
-	
-	public delegate T JsAction<T>();
-	
 	public class JsContext : IDisposable
 	{
+	    private readonly Lazy<JsValue> _undefined = new(() => { JsRuntime.JsGetUndefinedValue(out var handle); return new(handle); });
+	    private readonly Lazy<JsValue> _null = new(() => { JsRuntime.JsGetNullValue(out var handle); return new(handle); });
+	    private readonly Lazy<JsValue> _true = new(() => { JsRuntime.JsGetTrueValue(out var handle); return new(handle); });
+	    private readonly Lazy<JsValue> _false = new(() => { JsRuntime.JsGetFalseValue(out var handle); return new(handle); });
 	    private nint _handle;
 	
 	    public JsContext(nint handle, bool addRef)
@@ -85,7 +86,7 @@ namespace JsRt
 	    }
 	
 	    public override string ToString() => Handle.ToString();
-	    public virtual void Execute(JsAction action)
+	    public virtual void Execute(Action action)
 	    {
 	        ArgumentNullException.ThrowIfNull(action);
 	        var prev = Current;
@@ -100,7 +101,7 @@ namespace JsRt
 	        }
 	    }
 	
-	    public virtual T Execute<T>(JsAction<T> action)
+	    public virtual T Execute<T>(Func<T> action)
 	    {
 	        ArgumentNullException.ThrowIfNull(action);
 	        var prev = Current;
@@ -108,6 +109,21 @@ namespace JsRt
 	        try
 	        {
 	            return action();
+	        }
+	        finally
+	        {
+	            Current = prev;
+	        }
+	    }
+	
+	    public virtual async Task<T> Execute<T>(Func<Task<T>> action)
+	    {
+	        ArgumentNullException.ThrowIfNull(action);
+	        var prev = Current;
+	        Current = this;
+	        try
+	        {
+	            return await action();
 	        }
 	        finally
 	        {
@@ -130,6 +146,11 @@ namespace JsRt
 	        }
 	    }
 	
+	    public JsValue Undefined => _undefined.Value;
+	    public JsValue True => _true.Value;
+	    public JsValue False => _false.Value;
+	    public JsValue Null => _null.Value;
+	
 	    public static int MaxRefCount { get; private set; }
 	    public static JsContext? Current
 	    {
@@ -138,7 +159,6 @@ namespace JsRt
 	            JsRuntime.Check(JsRuntime.JsGetCurrentContext(out var handle));
 	            return handle != 0 ? new JsContext(handle, false) : null;
 	        }
-	
 	        set => JsRuntime.JsSetCurrentContext(value != null ? value.Handle : 0);
 	    }
 	}
@@ -188,10 +208,15 @@ namespace JsRt
 	    public const string JsDll = "jscript9.dll";
 	
 	    private readonly Lock _lock = new();
-	    private JsValue? _go;
+	    private Lazy<JsValue> _go;
 	    private nint _handle;
 	
-	    public JsRuntime(JsRuntimeAttributes attributes, JsRuntimeVersion version) => Check(JsCreateRuntime(attributes, version, null, out _handle));
+	    public JsRuntime(JsRuntimeAttributes attributes, JsRuntimeVersion version)
+	    {
+	        Check(JsCreateRuntime(attributes, version, null, out _handle));
+	        _go = new Lazy<JsValue>(() => { JsGetGlobalObject(out var go); return new JsValue(go); });
+	    }
+	
 	    public JsRuntime()
 	        : this(JsRuntimeAttributes.JsRuntimeAttributeNone, JsRuntimeVersion.JsRuntimeVersionEdge)
 	    {
@@ -213,12 +238,13 @@ namespace JsRt
 	            throw new ArgumentException(null, nameof(handle));
 	
 	        _handle = handle;
+	        _go = new Lazy<JsValue>(() => { JsGetGlobalObject(out var go); return new JsValue(go); });
 	    }
 	
 	    public virtual bool CacheParsedScripts { get; set; }
 	    public IDictionary<string, JsValue> ParsedScriptCache { get; } = new Dictionary<string, JsValue>();
 	    public nint Handle => _handle;
-	
+	    public JsValue GlobalObject => _go.Value;
 	    public long MemoryUsage
 	    {
 	        get
@@ -244,25 +270,6 @@ namespace JsRt
 	        }
 	    }
 	
-	    public JsValue? GlobalObject
-	    {
-	        get
-	        {
-	            lock (_lock)
-	            {
-	                if (_go == null)
-	                {
-	                    JsGetGlobalObject(out nint go);
-	                    if (go == 0)
-	                        return null;
-	
-	                    _go = new JsValue(go);
-	                }
-	                return _go;
-	            }
-	        }
-	    }
-	
 	    public Version? EngineVersion
 	    {
 	        get
@@ -271,9 +278,9 @@ namespace JsRt
 	            if (go == null)
 	                return null;
 	
-	            var major = go.CallFunction("ScriptEngineMajorVersion", 0);
-	            var minor = go.CallFunction("ScriptEngineMinorVersion", 0);
-	            var build = go.CallFunction("ScriptEngineBuildVersion", 0);
+	            var major = go.CallFunction<int>("ScriptEngineMajorVersion");
+	            var minor = go.CallFunction<int>("ScriptEngineMinorVersion");
+	            var build = go.CallFunction<int>("ScriptEngineBuildVersion");
 	            return new Version(major, minor, Environment.OSVersion.Version.Build, build);
 	        }
 	    }
@@ -283,7 +290,7 @@ namespace JsRt
 	        get
 	        {
 	            CheckDisposed();
-	            Check(JsIsRuntimeExecutionDisabled(Handle, out bool disabled));
+	            Check(JsIsRuntimeExecutionDisabled(Handle, out var disabled));
 	            return !disabled;
 	        }
 	        set
@@ -314,7 +321,7 @@ namespace JsRt
 	    public virtual JsContext CreateContext()
 	    {
 	        CheckDisposed();
-	        Check(JsCreateContext(Handle, 0, out nint handle));
+	        Check(JsCreateContext(Handle, 0, out var handle));
 	        return new JsContext(handle, true);
 	    }
 	
@@ -368,7 +375,7 @@ namespace JsRt
 	                var key = JsContext.Current.Handle + "." + script;
 	                if (!ParsedScriptCache.TryGetValue(key, out var ps))
 	                {
-	                    error = Check(JsParseScript(script, 0, sourceUrl, out nint psHandle), false);
+	                    error = Check(JsParseScript(script, 0, sourceUrl, out var psHandle), false);
 	                    if (error != null)
 	                    {
 	                        // errored scripts are not cached
@@ -382,7 +389,7 @@ namespace JsRt
 	            }
 	        }
 	
-	        error = Check(JsRunScript(script, 0, sourceUrl, out nint result), false);
+	        error = Check(JsRunScript(script, 0, sourceUrl, out var result), false);
 	        if (error != null)
 	        {
 	            value = null;
@@ -412,7 +419,7 @@ namespace JsRt
 	        ArgumentNullException.ThrowIfNull(script);
 	        sourceUrl ??= string.Empty;
 	
-	        error = Check(JsParseScript(script, 0, sourceUrl, out nint result), false);
+	        error = Check(JsParseScript(script, 0, sourceUrl, out var result), false);
 	        if (error != null)
 	        {
 	            parsedScript = null;
@@ -511,7 +518,7 @@ namespace JsRt
 	    protected internal static partial JsErrorCode JsGetOwnPropertyDescriptor(nint @object, nint propertyId, out nint propertyDescriptor);
 	
 	    [LibraryImport(JsDll)]
-	    protected internal static partial JsErrorCode JsCallFunction(nint function, in nint[]? arguments, ushort argumentCount, out nint result);
+	    protected internal static partial JsErrorCode JsCallFunction(nint function, [In][MarshalUsing(CountElementName = nameof(argumentCount))] nint[] arguments, ushort argumentCount, out nint result);
 	
 	    [LibraryImport(JsDll)]
 	    protected internal static partial JsErrorCode JsGetIndexedProperty(nint @object, nint index, out nint result);
@@ -526,6 +533,18 @@ namespace JsRt
 	    protected internal static partial JsErrorCode JsAddRef(nint handle, out int count);
 	
 	    [LibraryImport(JsDll)]
+	    protected internal static partial JsErrorCode JsGetUndefinedValue(out nint handle);
+	
+	    [LibraryImport(JsDll)]
+	    protected internal static partial JsErrorCode JsGetNullValue(out nint handle);
+	
+	    [LibraryImport(JsDll)]
+	    protected internal static partial JsErrorCode JsGetFalseValue(out nint handle);
+	
+	    [LibraryImport(JsDll)]
+	    protected internal static partial JsErrorCode JsGetTrueValue(out nint handle);
+	
+	    [LibraryImport(JsDll)]
 	    protected internal static partial JsErrorCode JsRelease(nint handle, out int count);
 	#pragma warning restore CA1401 // P/Invokes should not be visible
 	#pragma warning restore IDE0079 // Remove unnecessary suppression
@@ -537,6 +556,10 @@ namespace JsRt
 	        var handle = Interlocked.Exchange(ref _handle, 0);
 	        if (handle != 0)
 	        {
+	            if (_go.IsValueCreated)
+	            {
+	                _go.Value?.Dispose();
+	            }
 	            JsDisposeRuntime(handle);
 	        }
 	    }
@@ -582,7 +605,7 @@ namespace JsRt
 	        Exception? error = null;
 	        if (code != JsErrorCode.JsNoError)
 	        {
-	            JsGetAndClearException(out nint ex);
+	            JsGetAndClearException(out var ex);
 	            using var value = ex != 0 ? new JsValue(ex) : null;
 	            error = new JsRuntimeException(code, value);
 	        }
@@ -618,9 +641,9 @@ namespace JsRt
 	        Code = code;
 	        if (error != null)
 	        {
-	            Line = error.GetProperty("line", -1);
-	            Column = error.GetProperty("column", -1);
-	            SourceCode = error.GetProperty<string?>("source", null) ?? string.Empty;
+	            Line = error.GetProperty<int>("line");
+	            Column = error.GetProperty<int>("column");
+	            SourceCode = error.GetProperty<string?>("source") ?? string.Empty;
 	        }
 	    }
 	
@@ -695,10 +718,10 @@ namespace JsRt
 	        var text = new StringBuilder(GetErrorText(code));
 	        if (error != null)
 	        {
-	            var line = error.GetProperty("line", -1);
-	            var column = error.GetProperty("column", -1);
-	            var source = error.GetProperty<string?>("source", null);
-	            var errorText = error.GetProperty<string?>("message", null);
+	            var line = error.GetProperty<int>("line");
+	            var column = error.GetProperty<int>("column");
+	            var source = error.GetProperty<string?>("source");
+	            var errorText = error.GetProperty<string?>("message");
 	
 	            if (!string.IsNullOrEmpty(errorText))
 	            {
@@ -735,22 +758,11 @@ namespace JsRt
 	{
 	    private nint _handle;
 	
-	    public JsValue(object? value)
+	    public JsValue(nint handle)
 	    {
-	        VariantToValue(value, true, out var handle);
-	        _handle = handle;
-	        JsRuntime.Check(JsRuntime.JsGetValueType(Handle, out var vt));
-	        ValueType = vt;
+	        //if (handle == 0)
+	        //throw new ArgumentException(null, nameof(handle));
 	
-	        JsRuntime.AddRef(handle, true, out var count);
-	        if (count > MaxRefCount)
-	        {
-	            MaxRefCount = count;
-	        }
-	    }
-	
-	    internal JsValue(nint handle)
-	    {
 	        _handle = handle;
 	        JsRuntime.Check(JsRuntime.JsGetValueType(Handle, out var vt));
 	        ValueType = vt;
@@ -781,17 +793,6 @@ namespace JsRt
 	            JsRuntime.Check(JsRuntime.JsValueToVariant(Handle, out var v), false);
 	            using var variant = Variant.Attach(ref v);
 	            var value = variant.Value;
-	            //if (value is IDispatch disp)
-	            //{
-	            //    var raw = new VARIANT();
-	            //    var hr = disp.Invoke(0, Guid.Empty, 0, DISPATCH_FLAGS.DISPATCH_PROPERTYGET, new DISPPARAMS(), (nint)(&raw), 0, 0);
-	            //    var z = hr;
-	            //    var t = raw.Anonymous.Anonymous.vt;
-	            //    Console.WriteLine(t);
-	            //    using var vv = Variant.Attach(ref raw);
-	            //    return vv.Value;
-	            //}
-	
 	            return value;
 	        }
 	    }
@@ -826,7 +827,7 @@ namespace JsRt
 	            var props = new Dictionary<string, JsValue?>();
 	            foreach (string name in names)
 	            {
-	                props.Add(name, GetProperty<JsValue?>(name, null));
+	                props.Add(name, GetProperty<JsValue?>(name));
 	            }
 	            return props;
 	        }
@@ -934,28 +935,30 @@ namespace JsRt
 	        if (error != null)
 	            return false;
 	
-	        using (var jsValue = new JsValue(index))
-	        {
-	            error = JsRuntime.Check(JsRuntime.JsSetIndexedProperty(Handle, jsValue.Handle, valueHandle));
-	        }
+	        using var jsValue = FromObject(index);
+	        error = JsRuntime.Check(JsRuntime.JsSetIndexedProperty(Handle, jsValue.Handle, valueHandle));
 	        return error == null;
 	    }
 	
-	    public virtual T? GetProperty<T>(string name, T? defaultValue)
+	    public virtual object? GetProperty(string name, object? defaultValue = default) => GetProperty<object?>(name, defaultValue);
+	    public virtual T? GetProperty<T>(string name, T? defaultValue = default)
 	    {
-	        if (!TryGetProperty(name, out _, out var value) || value == null)
+	        if (!TryGetProperty(name, out _, out var jsValue) || IsNullOfUndefined(jsValue))
 	            return defaultValue;
 	
 	        if (typeof(T) == typeof(JsValue))
-	            return (T)(object)value!;
+	            return (T)(object)jsValue!;
 	
 	        try
 	        {
-	            return ChangeType(value.Value, defaultValue);
+	            if (TryChangeType<T>(jsValue!.Value, out var value))
+	                return value;
+	
+	            return defaultValue;
 	        }
 	        finally
 	        {
-	            value?.Dispose();
+	            jsValue?.Dispose();
 	        }
 	    }
 	
@@ -990,32 +993,31 @@ namespace JsRt
 	        }
 	    }
 	
-	    public virtual T GetProperty<T>(int index, T defaultValue)
+	    public virtual T? GetProperty<T>(int index, T? defaultValue = default)
 	    {
-	        if (!TryGetProperty(index, out _, out var value) || value == null)
+	        if (!TryGetProperty(index, out _, out var jsValue) || IsNullOfUndefined(jsValue))
 	            return defaultValue;
 	
 	        if (typeof(T) == typeof(JsValue))
-	            return (T)(object)value!; // don't dispose this one since we want the JsValue itself
+	            return (T)(object)jsValue!; // don't dispose this one since we want the JsValue itself
 	
 	        try
 	        {
-	            return ChangeType(value.Value, defaultValue);
+	            if (TryChangeType<T>(jsValue!.Value, out var value))
+	                return value;
+	
+	            return defaultValue;
 	        }
 	        finally
 	        {
-	            value?.Dispose();
+	            jsValue?.Dispose();
 	        }
 	    }
 	
 	    public virtual bool TryGetProperty(int index, out Exception? error, out JsValue? value)
 	    {
-	        nint valueHandle;
-	        using (var iv = new JsValue(index))
-	        {
-	            error = JsRuntime.Check(JsRuntime.JsGetIndexedProperty(Handle, iv.Handle, out valueHandle), false);
-	        }
-	
+	        using var iv = FromObject(index);
+	        error = JsRuntime.Check(JsRuntime.JsGetIndexedProperty(Handle, iv.Handle, out nint valueHandle), false);
 	        if (error != null)
 	        {
 	            value = null;
@@ -1025,23 +1027,40 @@ namespace JsRt
 	        return true;
 	    }
 	
-	    public virtual T? CallFunction<T>(string name, T? defaultValue, params object[] arguments)
+	    public virtual object? CallFunction(string name, params object[] arguments) => CallFunction<object?>(name, arguments);
+	    public virtual T? CallFunction<T>(string name, params object[] arguments)
 	    {
-	        using var fn = GetProperty<JsValue>(name, null);
-	        if (fn == null || IsUndefined(fn))
-	            return defaultValue;
+	        ArgumentNullException.ThrowIfNull(name);
+	        if (!TryCallFunction(name, out T? value, arguments))
+	            return default;
 	
-	        JsValue? value = null;
+	        return value;
+	    }
+	
+	    public virtual bool TryCallFunction<T>(string name, out T? value, params object[] arguments)
+	    {
+	        ArgumentNullException.ThrowIfNull(name);
+	        using var fn = GetProperty<JsValue>(name);
+	        if (IsNullOfUndefined(fn))
+	        {
+	            value = default;
+	            return false;
+	        }
+	
+	        JsValue? jsValue = null;
 	        try
 	        {
-	            if (!fn.TryCall(out var error, out value, arguments) || value == null)
-	                return defaultValue;
+	            if (!fn!.TryCall(out var error, out jsValue, arguments) || IsNullOfUndefined(jsValue))
+	            {
+	                value = default;
+	                return false;
+	            }
 	
-	            return ChangeType(value.Value, defaultValue);
+	            return TryChangeType(jsValue!.Value, out value);
 	        }
 	        finally
 	        {
-	            value?.Dispose();
+	            jsValue?.Dispose();
 	        }
 	    }
 	
@@ -1060,7 +1079,7 @@ namespace JsRt
 	
 	    public virtual object? Call(JsValue?[]? arguments)
 	    {
-	        if (!TryCall(out var error, out var value, arguments) || value == null)
+	        if (!TryCall(out var error, out var jsValue, arguments) || IsNullOfUndefined(jsValue))
 	        {
 	            if (error != null)
 	                throw error;
@@ -1070,45 +1089,11 @@ namespace JsRt
 	
 	        try
 	        {
-	            return value.Value;
+	            return jsValue!.Value;
 	        }
 	        finally
 	        {
-	            value.Dispose();
-	        }
-	    }
-	
-	    public virtual T? CallWithDefault<T>(T? defaultValue, params object[]? arguments)
-	    {
-	        var args = Convert(arguments);
-	        try
-	        {
-	            return CallWithDefault(defaultValue, args);
-	        }
-	        finally
-	        {
-	            Dispose(args);
-	        }
-	    }
-	
-	    public virtual T CallWithDefault<T>(T defaultValue, JsValue[]? arguments)
-	    {
-	        if (!TryCall(out _, out var value, arguments))
-	            return defaultValue;
-	
-	        if (typeof(T) == typeof(JsValue))
-	            return (T)(object)value!;
-	
-	        if (value == null)
-	            return defaultValue;
-	
-	        try
-	        {
-	            return ChangeType(value.Value, defaultValue);
-	        }
-	        finally
-	        {
-	            value.Dispose();
+	            jsValue!.Dispose();
 	        }
 	    }
 	
@@ -1127,17 +1112,21 @@ namespace JsRt
 	
 	    public virtual bool TryCall(out Exception? error, out JsValue? value, JsValue?[]? arguments)
 	    {
-	        nint[]? args = null;
-	        if (arguments != null && arguments.Length > 0)
+	        var args = new List<nint>();
+	        if (arguments != null)
 	        {
-	            args = new nint[arguments.Length];
-	            for (var i = 0; i < arguments.Length; i++)
+	            foreach (var arg in arguments)
 	            {
-	                args[i] = arguments[i]?.Handle ?? 0;
+	                if (arg == null)
+	                {
+	                    args.Add(0);
+	                    continue;
+	                }
+	                args.Add(arg.Handle);
 	            }
 	        }
 	
-	        error = JsRuntime.Check(JsRuntime.JsCallFunction(Handle, args, (ushort)(args != null ? args.Length : 0), out var result), false);
+	        error = JsRuntime.Check(JsRuntime.JsCallFunction(Handle, [.. args], (ushort)args.Count, out var result), false);
 	        if (error != null)
 	        {
 	            value = null;
@@ -1165,16 +1154,55 @@ namespace JsRt
 	
 	    public static int MaxRefCount { get; set; }
 	
-	    public static bool IsUndefined(object obj) => obj is JsValue jsv && jsv.ValueType == JsValueType.JsUndefined;
-	    public static T ChangeType<T>(object? value, T defaultValue)
+	    public static JsValue FromObject(object? value)
 	    {
-	        if (value == null)
-	            return defaultValue;
+	        VariantToValue(value, true, out var handle);
+	        var jsv = new JsValue(handle);
+	        JsRuntime.AddRef(handle, true, out var count);
+	        if (count > MaxRefCount)
+	        {
+	            MaxRefCount = count;
+	        }
+	        return jsv;
+	    }
 	
-	        if (value is T t)
-	            return t;
+	    public static bool IsNullOfUndefined(object? obj) => obj is null || IsUndefined(obj);
+	    public static bool IsUndefined(object? obj) => obj is JsValue jsv && jsv.ValueType == JsValueType.JsUndefined;
 	
-	        return (T)System.Convert.ChangeType(value, typeof(T), CultureInfo.InvariantCulture);
+	    public static bool TryChangeType<T>(object? input, out T? value)
+	    {
+	        if (typeof(T) == typeof(object))
+	        {
+	            value = (T?)input;
+	            return true;
+	        }
+	
+	        if (input == null)
+	        {
+	            value = default;
+	            return true;
+	        }
+	
+	        if (input is T t)
+	        {
+	            value = t;
+	            return true;
+	        }
+	
+	        if (input is JsValue jsv)
+	            return TryChangeType(jsv.Value, out value);
+	
+	        try
+	        {
+	            value = (T?)System.Convert.ChangeType(input, typeof(T), CultureInfo.InvariantCulture);
+	            return true;
+	
+	        }
+	        catch (Exception)
+	        {
+	            value = default;
+	            return false;
+	        }
 	    }
 	
 	    private static Exception? VariantToValue(object? value, bool throwOnError, out nint handle)
@@ -1206,7 +1234,7 @@ namespace JsRt
 	        var values = new JsValue[arguments.Length];
 	        for (var i = 0; i < arguments.Length; i++)
 	        {
-	            values[i] = new JsValue(arguments[i]);
+	            values[i] = FromObject(arguments[i]);
 	        }
 	        return values;
 	    }
@@ -2136,23 +2164,6 @@ namespace JsRt.Interop
 	    public static implicit operator CHAR(sbyte value) => new(value);
 	}
 	
-	[Flags]
-	public enum DISPATCH_FLAGS : ushort
-	{
-	    DISPATCH_METHOD = 1,
-	    DISPATCH_PROPERTYGET = 2,
-	    DISPATCH_PROPERTYPUT = 4,
-	    DISPATCH_PROPERTYPUTREF = 8,
-	}
-	
-	public partial struct DISPPARAMS
-	{
-	    public nint rgvarg;
-	    public nint rgdispidNamedArgs;
-	    public uint cArgs;
-	    public uint cNamedArgs;
-	}
-	
 	public partial struct FILETIME
 	{
 	    public uint dwLowDateTime;
@@ -2210,7 +2221,7 @@ namespace JsRt.Interop
 	    public static partial HRESULT SafeArrayGetUBound(in SAFEARRAY psa, uint nDim, out int plUbound);
 	}
 	
-	public partial struct HRESULT(int value) : IEquatable<HRESULT>
+	public partial struct HRESULT(int value) : IEquatable<HRESULT>, IFormattable
 	{
 	    public static readonly HRESULT Null = new();
 	
@@ -2253,27 +2264,12 @@ namespace JsRt.Interop
 	    }
 	
 	    public override readonly string ToString() => ToString(null, null);
-	    public readonly string ToString(string? format, IFormatProvider? formatProvider)
+	    public readonly string ToString(string? format, IFormatProvider? formatProvider) => (format?.ToLowerInvariant()) switch
 	    {
-	        switch (format?.ToLowerInvariant())
-	        {
-	            case "i":
-	                return Value.ToString();
-	
-	            case "u":
-	                return UValue.ToString();
-	
-	            case "x":
-	                return "0x" + Value.ToString("X8");
-	
-	            default: // f
-	                var name = ToString("n", formatProvider);
-	                if (!string.IsNullOrEmpty(name))
-	                    return name + " (0x" + Value.ToString("X8") + ")";
-	
-	                return "0x" + Value.ToString("X8");
-	        }
-	    }
+	        "i" => Value.ToString(),
+	        "u" => UValue.ToString(),
+	        _ => "0x" + Value.ToString("X8"),
+	    };
 	
 	    public static HRESULT FromWin32(uint error)
 	    {
@@ -2298,26 +2294,6 @@ namespace JsRt.Interop
 	    public static bool operator !=(HRESULT left, HRESULT right) => !left.Equals(right);
 	    public static implicit operator int(HRESULT value) => value.Value;
 	    public static implicit operator HRESULT(int value) => new(value);
-	}
-	
-	[GeneratedComInterface, Guid("00020400-0000-0000-c000-000000000046")]
-	public partial interface IDispatch
-	{
-	    [PreserveSig]
-	    [return: MarshalAs(UnmanagedType.Error)]
-	    HRESULT GetTypeInfoCount(out uint pctinfo);
-	
-	    [PreserveSig]
-	    [return: MarshalAs(UnmanagedType.Error)]
-	    HRESULT GetTypeInfo(uint iTInfo, uint lcid, out nint ppTInfo);
-	
-	    [PreserveSig]
-	    [return: MarshalAs(UnmanagedType.Error)]
-	    HRESULT GetIDsOfNames(in Guid riid, [In][MarshalUsing(CountElementName = nameof(cNames))] PWSTR[] rgszNames, uint cNames, uint lcid, [In][Out][MarshalUsing(CountElementName = nameof(cNames))] int[] rgDispId);
-	
-	    [PreserveSig]
-	    [return: MarshalAs(UnmanagedType.Error)]
-	    HRESULT Invoke(int dispIdMember, in Guid riid, uint lcid, DISPATCH_FLAGS wFlags, in DISPPARAMS pDispParams, nint /* optional VARIANT* */ pVarResult, nint /* optional EXCEPINFO* */ pExcepInfo, nint /* optional uint* */ puArgErr);
 	}
 	
 	public partial struct PSTR // not disposable as we don't know here who allocated it

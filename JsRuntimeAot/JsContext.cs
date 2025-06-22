@@ -2,6 +2,11 @@
 
 public class JsContext : IDisposable
 {
+    private readonly Lazy<JsValue> _undefined = new(() => { JsRuntime.JsGetUndefinedValue(out var handle); return new(handle); });
+    private readonly Lazy<JsValue> _null = new(() => { JsRuntime.JsGetNullValue(out var handle); return new(handle); });
+    private readonly Lazy<JsValue> _true = new(() => { JsRuntime.JsGetTrueValue(out var handle); return new(handle); });
+    private readonly Lazy<JsValue> _false = new(() => { JsRuntime.JsGetFalseValue(out var handle); return new(handle); });
+    private readonly Lazy<JsValue> _go = new(() => { JsRuntime.Check(JsRuntime.JsGetGlobalObject(out var handle)); return new JsValue(handle); });
     private nint _handle;
 
     public JsContext(nint handle, bool addRef)
@@ -21,6 +26,7 @@ public class JsContext : IDisposable
     }
 
     public nint Handle => _handle;
+    public JsValue GlobalObject => _go.Value;
     public JsRuntime? Runtime
     {
         get
@@ -33,7 +39,29 @@ public class JsContext : IDisposable
         }
     }
 
+    public Version? EngineVersion
+    {
+        get
+        {
+            var go = GlobalObject;
+            var major = go.CallFunction<int>("ScriptEngineMajorVersion");
+            var minor = go.CallFunction<int>("ScriptEngineMinorVersion");
+            var build = go.CallFunction<int>("ScriptEngineBuildVersion");
+            return new Version(major, minor, Environment.OSVersion.Version.Build, build);
+        }
+    }
+
     public override string ToString() => Handle.ToString();
+
+    public virtual void AddGlobalObject(string name, object? value)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        if (value != null && !Marshal.IsTypeVisibleFromCom(value.GetType()) && !Marshal.IsComObject(value))
+            throw new ArgumentException("Argument type must be ComVisible.", nameof(value));
+
+        GlobalObject.SetProperty(name, value);
+    }
+
     public virtual void Execute(Action action)
     {
         ArgumentNullException.ThrowIfNull(action);
@@ -86,6 +114,31 @@ public class JsContext : IDisposable
         var handle = Interlocked.Exchange(ref _handle, 0);
         if (handle != 0)
         {
+            if (_go.IsValueCreated)
+            {
+                _go.Value?.Dispose();
+            }
+
+            if (_null.IsValueCreated)
+            {
+                _null.Value?.Dispose();
+            }
+
+            if (_true.IsValueCreated)
+            {
+                _true.Value?.Dispose();
+            }
+
+            if (_false.IsValueCreated)
+            {
+                _false.Value?.Dispose();
+            }
+
+            if (_undefined.IsValueCreated)
+            {
+                _undefined.Value?.Dispose();
+            }
+
             JsRuntime.Release(handle, true, out var count);
             if (count > MaxRefCount)
             {
@@ -93,6 +146,11 @@ public class JsContext : IDisposable
             }
         }
     }
+
+    public JsValue Undefined => _undefined.Value;
+    public JsValue True => _true.Value;
+    public JsValue False => _false.Value;
+    public JsValue Null => _null.Value;
 
     public static int MaxRefCount { get; private set; }
     public static JsContext? Current
@@ -102,7 +160,6 @@ public class JsContext : IDisposable
             JsRuntime.Check(JsRuntime.JsGetCurrentContext(out var handle));
             return handle != 0 ? new JsContext(handle, false) : null;
         }
-
         set => JsRuntime.JsSetCurrentContext(value != null ? value.Handle : 0);
     }
 }

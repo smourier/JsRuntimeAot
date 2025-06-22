@@ -2,7 +2,7 @@
 
 internal class Program
 {
-    static void Main(string[] args)
+    static unsafe void Main(string[] args)
     {
         var input = "1+2";
         var sum = JsRuntime.Eval(input);
@@ -15,9 +15,9 @@ internal class Program
         var rt = new JsRuntime();
         rt.CreateContext().Execute(() =>
         {
-            var obj = rt.ParseScript("function square(number) { return number * number; }")!;
-            var value = obj.CallFunction<object>("square", 5);
-            Console.WriteLine(value);
+            rt.RunScript("function square(number) { return 1 + number; }");
+            var result = JsContext.Current!.GlobalObject.CallFunction("square", 5);
+            Console.WriteLine(result);
         });
     }
 }
