@@ -2,7 +2,7 @@
 
 internal class Program
 {
-    static unsafe void Main()
+    static void Main()
     {
         var input = "1+2";
         var sum = JsRuntime.Eval(input);
