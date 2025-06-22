@@ -1,13 +1,14 @@
 ﻿namespace JsRt;
 
-public sealed class JsContext : IDisposable
+public class JsContext : IDisposable
 {
-    public static int MaxRefCount { get; private set; }
-
     private nint _handle;
 
-    internal JsContext(nint handle, bool addRef)
+    public JsContext(nint handle, bool addRef)
     {
+        if (handle == 0)
+            throw new ArgumentException(null, nameof(handle));
+
         _handle = handle;
         if (addRef)
         {
@@ -32,33 +33,8 @@ public sealed class JsContext : IDisposable
         }
     }
 
-    public void Dispose()
-    {
-        var handle = Interlocked.Exchange(ref _handle, 0);
-        if (handle != 0)
-        {
-            JsRuntime.Release(handle, true, out var count);
-            if (count > MaxRefCount)
-            {
-                MaxRefCount = count;
-            }
-        }
-    }
-
     public override string ToString() => Handle.ToString();
-
-    public static JsContext? Current
-    {
-        get
-        {
-            JsRuntime.Check(JsRuntime.JsGetCurrentContext(out var handle));
-            return handle != 0 ? new JsContext(handle, false) : null;
-        }
-
-        set => JsRuntime.JsSetCurrentContext(value != null ? value.Handle : 0);
-    }
-
-    public void Execute(JsAction action)
+    public virtual void Execute(Action action)
     {
         ArgumentNullException.ThrowIfNull(action);
         var prev = Current;
@@ -73,7 +49,7 @@ public sealed class JsContext : IDisposable
         }
     }
 
-    public T Execute<T>(JsAction<T> action)
+    public virtual T Execute<T>(Func<T> action)
     {
         ArgumentNullException.ThrowIfNull(action);
         var prev = Current;
@@ -86,5 +62,47 @@ public sealed class JsContext : IDisposable
         {
             Current = prev;
         }
+    }
+
+    public virtual async Task<T> Execute<T>(Func<Task<T>> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        var prev = Current;
+        Current = this;
+        try
+        {
+            return await action();
+        }
+        finally
+        {
+            Current = prev;
+        }
+    }
+
+    ~JsContext() { Dispose(disposing: false); }
+    public void Dispose() { Dispose(disposing: true); GC.SuppressFinalize(this); }
+    protected virtual void Dispose(bool disposing)
+    {
+        var handle = Interlocked.Exchange(ref _handle, 0);
+        if (handle != 0)
+        {
+            JsRuntime.Release(handle, true, out var count);
+            if (count > MaxRefCount)
+            {
+                MaxRefCount = count;
+            }
+        }
+    }
+
+    public static int MaxRefCount { get; private set; }
+    public static JsContext? Current
+    {
+        get
+        {
+            JsRuntime.Check(JsRuntime.JsGetCurrentContext(out var handle));
+            return handle != 0 ? new JsContext(handle, false) : null;
+        }
+
+        set => JsRuntime.JsSetCurrentContext(value != null ? value.Handle : 0);
     }
 }

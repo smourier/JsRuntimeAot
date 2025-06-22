@@ -1,8 +1,6 @@
-﻿using System.ComponentModel;
+﻿namespace JsRt.Interop;
 
-namespace JsRt.Interop;
-
-internal partial struct HRESULT(int value) : IEquatable<HRESULT>
+public partial struct HRESULT(int value) : IEquatable<HRESULT>
 {
     public static readonly HRESULT Null = new();
 

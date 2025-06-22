@@ -1,5 +1,5 @@
 # JsRuntimeAot
-A .NET9+ AOT compatible wrapper over the Microsoft "Chakra" JavaScript engine.
+A .NET9+ AOT compatible wrapper over the Microsoft "Chakra" JavaScript engine (aka JScript9.dll).
 
 => It's just one 2500 lines of C# file that allows you to run Javascript code from .NET.
 

@@ -14,6 +14,7 @@
 		<Using Include="System" />
 		<Using Include="System.Collections" />
 		<Using Include="System.Collections.Generic" />
+		<Using Include="System.ComponentModel" />
 		<Using Include="System.Globalization" />
 		<Using Include="System.Linq" />
 		<Using Include="System.Runtime.CompilerServices" />
@@ -23,6 +24,7 @@
 		<Using Include="System.Reflection" />
 		<Using Include="System.Text" />
 		<Using Include="System.Threading" />
+		<Using Include="System.Threading.Tasks" />
 	</ItemGroup>
 
 </Project>

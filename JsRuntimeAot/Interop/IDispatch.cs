@@ -1,7 +1,7 @@
 ﻿namespace JsRt.Interop;
 
 [GeneratedComInterface, Guid("00020400-0000-0000-c000-000000000046")]
-internal partial interface IDispatch
+public partial interface IDispatch
 {
     [PreserveSig]
     [return: MarshalAs(UnmanagedType.Error)]

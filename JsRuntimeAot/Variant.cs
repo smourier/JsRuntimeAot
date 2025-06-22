@@ -1,8 +1,6 @@
-﻿using System.Runtime.InteropServices.Marshalling;
+﻿namespace JsRt;
 
-namespace JsRt;
-
-internal sealed class Variant : IDisposable
+public sealed class Variant : IDisposable
 {
     private VARIANT _inner;
 
