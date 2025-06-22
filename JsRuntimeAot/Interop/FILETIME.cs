@@ -1,6 +1,6 @@
 ﻿namespace JsRt.Interop;
 
-public partial struct FILETIME
+internal partial struct FILETIME
 {
     public uint dwLowDateTime;
     public uint dwHighDateTime;

@@ -1,6 +1,6 @@
 ﻿namespace JsRt.Interop;
 
-public partial struct CHAR(sbyte value) : IEquatable<CHAR>
+internal partial struct CHAR(sbyte value) : IEquatable<CHAR>
 {
     public static readonly CHAR Null = new();
 

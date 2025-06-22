@@ -14,3 +14,40 @@ Obviously, the [Chakra Javascript Engine](https://en.wikipedia.org/wiki/Chakra_(
 * This all allows for easier .NET AOT compatiblity, which is, AFAIK, not currently the case with 100% .NET Javascript implementations.
 
 So if one just needs "some level of javascript support" closely integrated with a modern .NET application, with zero deployment impact, it can be very useful.
+
+# How to use?
+
+Here is some sample code:
+```csharp
+var input = "1+2";
+var sum = JsRuntime.Eval(input);
+Console.WriteLine($"{input} => {sum}");
+
+input = "eval(1+2)";
+sum = JsRuntime.Eval(input);
+Console.WriteLine($"{input} => {sum}");
+
+using var rt = new JsRuntime();
+rt.WithContext(ctx =>
+{
+    input = "function hello(n) { return 'héééééllooooo'; }";
+    rt.RunScript(input);
+    var result = ctx.GlobalObject.CallFunction("hello");
+    Console.WriteLine($"{input} => {result}");
+});
+
+rt.WithContext(ctx =>
+{
+    input = "function square(n) { return n * n; }";
+    rt.RunScript(input);
+    var sw = Stopwatch.StartNew();
+    var glo = ctx.GlobalObject;
+    var max = 1_000_000;
+    for (var i = 0; i < max; i++)
+    {
+        var result = glo.CallFunction("square", null, 5);
+        //Console.WriteLine(i + ":" + result);
+    }
+    Console.WriteLine($"{input} * {max} elapsed => {sw}.");
+});
+

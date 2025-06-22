@@ -1,6 +1,6 @@
 ﻿namespace JsRt.Interop;
 
-public struct VARIANT
+internal struct VARIANT
 {
     [StructLayout(LayoutKind.Explicit)]
     public struct AnonymousUnion

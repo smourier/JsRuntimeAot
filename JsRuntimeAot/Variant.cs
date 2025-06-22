@@ -1,6 +1,6 @@
 ﻿namespace JsRt;
 
-public sealed class Variant : IDisposable
+internal sealed class Variant : IDisposable
 {
     private VARIANT _inner;
 

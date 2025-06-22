@@ -23,9 +23,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 /*
-AssemblyVersion: 1.3.2.0
-AssemblyFileVersion: 1.3.2.0
-AssemblyInformationalVersion: 1.3.2.0
+AssemblyVersion: 1.0.0.0
+AssemblyFileVersion: 1.0.0.0
+AssemblyInformationalVersion: 1.0.0.0
 */
 global using global::JsRt.Interop;
 global using global::System;
@@ -570,10 +570,10 @@ namespace JsRt
 	    protected internal static partial JsErrorCode JsSetProperty(nint @object, nint propertyId, nint value, [MarshalAs(UnmanagedType.Bool)] bool useStrictRules);
 	
 	    [LibraryImport(JsDll)]
-	    protected internal static partial JsErrorCode JsVariantToValue(in VARIANT variant, out nint value);
+	    internal static partial JsErrorCode JsVariantToValue(in VARIANT variant, out nint value);
 	
 	    [LibraryImport(JsDll)]
-	    protected internal static partial JsErrorCode JsValueToVariant(nint value, out VARIANT variant);
+	    internal static partial JsErrorCode JsValueToVariant(nint value, out VARIANT variant);
 	
 	    [LibraryImport(JsDll)]
 	    protected internal static partial JsErrorCode JsGetValueType(nint value, out JsValueType type);
@@ -1285,7 +1285,7 @@ namespace JsRt
 	    JsDataView = 12,
 	}
 	
-	public sealed class Variant : IDisposable
+	internal sealed class Variant : IDisposable
 	{
 	    private VARIANT _inner;
 	
@@ -2147,7 +2147,7 @@ namespace JsRt
 
 namespace JsRt.Interop
 {
-	public partial struct BSTR // not disposable as we don't know here who allocated it
+	internal partial struct BSTR // not disposable as we don't know here who allocated it
 	{
 	    public nint Value;
 	
@@ -2175,7 +2175,7 @@ namespace JsRt.Interop
 	    public override readonly string? ToString() => Marshal.PtrToStringBSTR(Value);
 	}
 	
-	public partial struct CHAR(sbyte value) : IEquatable<CHAR>
+	internal partial struct CHAR(sbyte value) : IEquatable<CHAR>
 	{
 	    public static readonly CHAR Null = new();
 	
@@ -2192,7 +2192,7 @@ namespace JsRt.Interop
 	    public static implicit operator CHAR(sbyte value) => new(value);
 	}
 	
-	public partial struct FILETIME
+	internal partial struct FILETIME
 	{
 	    public uint dwLowDateTime;
 	    public uint dwHighDateTime;
@@ -2324,7 +2324,7 @@ namespace JsRt.Interop
 	    public static implicit operator HRESULT(int value) => new(value);
 	}
 	
-	public partial struct PSTR // not disposable as we don't know here who allocated it
+	internal partial struct PSTR // not disposable as we don't know here who allocated it
 	{
 	    public nint Value;
 	
@@ -2363,7 +2363,7 @@ namespace JsRt.Interop
 	    public override readonly string? ToString() => Marshal.PtrToStringAnsi(Value);
 	}
 	
-	public partial struct PWSTR // not disposable as we don't know here who allocated it
+	internal partial struct PWSTR // not disposable as we don't know here who allocated it
 	{
 	    public nint Value;
 	
@@ -2417,7 +2417,7 @@ namespace JsRt.Interop
 	}
 	
 	[Flags]
-	public enum VARENUM : ushort
+	internal enum VARENUM : ushort
 	{
 	    VT_EMPTY = 0,
 	    VT_NULL = 1,
@@ -2473,7 +2473,7 @@ namespace JsRt.Interop
 	    VT_TYPEMASK = 4095,
 	}
 	
-	public struct VARIANT
+	internal struct VARIANT
 	{
 	    [StructLayout(LayoutKind.Explicit)]
 	    public struct AnonymousUnion
@@ -2642,7 +2642,7 @@ namespace JsRt.Interop
 	    public AnonymousUnion Anonymous;
 	}
 	
-	public struct VARIANT_BOOL(short value) : IEquatable<VARIANT_BOOL>
+	internal struct VARIANT_BOOL(short value) : IEquatable<VARIANT_BOOL>
 	{
 	    public static readonly VARIANT_BOOL Null = new();
 	

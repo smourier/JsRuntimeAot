@@ -1,6 +1,6 @@
 ﻿namespace JsRt.Interop;
 
-public struct VARIANT_BOOL(short value) : IEquatable<VARIANT_BOOL>
+internal struct VARIANT_BOOL(short value) : IEquatable<VARIANT_BOOL>
 {
     public static readonly VARIANT_BOOL Null = new();
 

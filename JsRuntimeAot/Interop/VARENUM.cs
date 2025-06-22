@@ -3,7 +3,7 @@
 #pragma warning disable IDE0079 // Remove unnecessary suppression
 #pragma warning disable CA1069 // Enums values should not be duplicated
 [Flags]
-public enum VARENUM : ushort
+internal enum VARENUM : ushort
 {
     VT_EMPTY = 0,
     VT_NULL = 1,

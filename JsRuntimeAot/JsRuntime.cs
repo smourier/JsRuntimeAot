@@ -289,10 +289,10 @@ public partial class JsRuntime : IDisposable, IEquatable<JsRuntime>
     protected internal static partial JsErrorCode JsSetProperty(nint @object, nint propertyId, nint value, [MarshalAs(UnmanagedType.Bool)] bool useStrictRules);
 
     [LibraryImport(JsDll)]
-    protected internal static partial JsErrorCode JsVariantToValue(in VARIANT variant, out nint value);
+    internal static partial JsErrorCode JsVariantToValue(in VARIANT variant, out nint value);
 
     [LibraryImport(JsDll)]
-    protected internal static partial JsErrorCode JsValueToVariant(nint value, out VARIANT variant);
+    internal static partial JsErrorCode JsValueToVariant(nint value, out VARIANT variant);
 
     [LibraryImport(JsDll)]
     protected internal static partial JsErrorCode JsGetValueType(nint value, out JsValueType type);

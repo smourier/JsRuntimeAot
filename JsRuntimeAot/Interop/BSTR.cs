@@ -1,6 +1,6 @@
 ﻿namespace JsRt.Interop;
 
-public partial struct BSTR // not disposable as we don't know here who allocated it
+internal partial struct BSTR // not disposable as we don't know here who allocated it
 {
     public nint Value;
 
