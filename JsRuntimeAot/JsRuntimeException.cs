@@ -9,9 +9,9 @@ public partial class JsRuntimeException : Exception
         Code = code;
         if (error != null)
         {
-            Line = error.GetProperty("line", -1);
-            Column = error.GetProperty("column", -1);
-            SourceCode = error.GetProperty<string?>("source", null) ?? string.Empty;
+            Line = error.GetProperty<int>("line");
+            Column = error.GetProperty<int>("column");
+            SourceCode = error.GetProperty<string?>("source") ?? string.Empty;
         }
     }
 
@@ -86,10 +86,10 @@ public partial class JsRuntimeException : Exception
         var text = new StringBuilder(GetErrorText(code));
         if (error != null)
         {
-            var line = error.GetProperty("line", -1);
-            var column = error.GetProperty("column", -1);
-            var source = error.GetProperty<string?>("source", null);
-            var errorText = error.GetProperty<string?>("message", null);
+            var line = error.GetProperty<int>("line");
+            var column = error.GetProperty<int>("column");
+            var source = error.GetProperty<string?>("source");
+            var errorText = error.GetProperty<string?>("message");
 
             if (!string.IsNullOrEmpty(errorText))
             {

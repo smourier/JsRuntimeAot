@@ -16,8 +16,8 @@ internal class Program
         rt.CreateContext().Execute(() =>
         {
             var obj = rt.ParseScript("function square(number) { return number * number; }")!;
-            var names = obj.PropertyNames;
-            Console.WriteLine(obj.Call(5));
+            var value = obj.CallFunction<object>("square", 5);
+            Console.WriteLine(value);
         });
     }
 }

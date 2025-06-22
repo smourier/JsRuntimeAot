@@ -88,9 +88,9 @@ public partial class JsRuntime : IDisposable
             if (go == null)
                 return null;
 
-            var major = go.CallFunction("ScriptEngineMajorVersion", 0);
-            var minor = go.CallFunction("ScriptEngineMinorVersion", 0);
-            var build = go.CallFunction("ScriptEngineBuildVersion", 0);
+            var major = go.CallFunction<int>("ScriptEngineMajorVersion");
+            var minor = go.CallFunction<int>("ScriptEngineMinorVersion");
+            var build = go.CallFunction<int>("ScriptEngineBuildVersion");
             return new Version(major, minor, Environment.OSVersion.Version.Build, build);
         }
     }
@@ -328,7 +328,7 @@ public partial class JsRuntime : IDisposable
     protected internal static partial JsErrorCode JsGetOwnPropertyDescriptor(nint @object, nint propertyId, out nint propertyDescriptor);
 
     [LibraryImport(JsDll)]
-    protected internal static partial JsErrorCode JsCallFunction(nint function, in nint[]? arguments, ushort argumentCount, out nint result);
+    protected internal static partial JsErrorCode JsCallFunction(nint function, [In] nint[] arguments, ushort argumentCount, out nint result);
 
     [LibraryImport(JsDll)]
     protected internal static partial JsErrorCode JsGetIndexedProperty(nint @object, nint index, out nint result);

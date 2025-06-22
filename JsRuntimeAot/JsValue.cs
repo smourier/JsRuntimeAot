@@ -39,17 +39,6 @@ public class JsValue : IDisposable
             JsRuntime.Check(JsRuntime.JsValueToVariant(Handle, out var v), false);
             using var variant = Variant.Attach(ref v);
             var value = variant.Value;
-            //if (value is IDispatch disp)
-            //{
-            //    var raw = new VARIANT();
-            //    var hr = disp.Invoke(0, Guid.Empty, 0, DISPATCH_FLAGS.DISPATCH_PROPERTYGET, new DISPPARAMS(), (nint)(&raw), 0, 0);
-            //    var z = hr;
-            //    var t = raw.Anonymous.Anonymous.vt;
-            //    Console.WriteLine(t);
-            //    using var vv = Variant.Attach(ref raw);
-            //    return vv.Value;
-            //}
-
             return value;
         }
     }
@@ -84,7 +73,7 @@ public class JsValue : IDisposable
             var props = new Dictionary<string, JsValue?>();
             foreach (string name in names)
             {
-                props.Add(name, GetProperty<JsValue?>(name, null));
+                props.Add(name, GetProperty<JsValue?>(name));
             }
             return props;
         }
@@ -197,21 +186,24 @@ public class JsValue : IDisposable
         return error == null;
     }
 
-    public virtual T? GetProperty<T>(string name, T? defaultValue)
+    public virtual T? GetProperty<T>(string name, T? defaultValue = default)
     {
-        if (!TryGetProperty(name, out _, out var value) || value == null)
+        if (!TryGetProperty(name, out _, out var jsValue) || IsNullOfUndefined(jsValue))
             return defaultValue;
 
         if (typeof(T) == typeof(JsValue))
-            return (T)(object)value!;
+            return (T)(object)jsValue!;
 
         try
         {
-            return ChangeType(value.Value, defaultValue);
+            if (TryChangeType<T>(jsValue, out var value))
+                return value;
+
+            return defaultValue;
         }
         finally
         {
-            value?.Dispose();
+            jsValue?.Dispose();
         }
     }
 
@@ -246,21 +238,24 @@ public class JsValue : IDisposable
         }
     }
 
-    public virtual T GetProperty<T>(int index, T defaultValue)
+    public virtual T? GetProperty<T>(int index, T? defaultValue = default)
     {
-        if (!TryGetProperty(index, out _, out var value) || value == null)
+        if (!TryGetProperty(index, out _, out var jsValue) || IsNullOfUndefined(jsValue))
             return defaultValue;
 
         if (typeof(T) == typeof(JsValue))
-            return (T)(object)value!; // don't dispose this one since we want the JsValue itself
+            return (T)(object)jsValue!; // don't dispose this one since we want the JsValue itself
 
         try
         {
-            return ChangeType(value.Value, defaultValue);
+            if (TryChangeType<T>(jsValue, out var value))
+                return value;
+
+            return defaultValue;
         }
         finally
         {
-            value?.Dispose();
+            jsValue?.Dispose();
         }
     }
 
@@ -277,23 +272,39 @@ public class JsValue : IDisposable
         return true;
     }
 
-    public virtual T? CallFunction<T>(string name, T? defaultValue, params object[] arguments)
+    public virtual T? CallFunction<T>(string name, params object[] arguments)
     {
-        using var fn = GetProperty<JsValue>(name, null);
-        if (fn == null || IsUndefined(fn))
-            return defaultValue;
+        ArgumentNullException.ThrowIfNull(name);
+        if (!TryCallFunction(name, out T? value, arguments))
+            return default;
 
-        JsValue? value = null;
+        return value;
+    }
+
+    public virtual bool TryCallFunction<T>(string name, out T? value, params object[] arguments)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        using var fn = GetProperty<JsValue>(name);
+        if (IsNullOfUndefined(fn))
+        {
+            value = default;
+            return false;
+        }
+
+        JsValue? jsValue = null;
         try
         {
-            if (!fn.TryCall(out var error, out value, arguments) || value == null)
-                return defaultValue;
+            if (!fn.TryCall(out var error, out jsValue, arguments) || IsNullOfUndefined(jsValue))
+            {
+                value = default;
+                return false;
+            }
 
-            return ChangeType(value.Value, defaultValue);
+            return TryChangeType(jsValue, out value);
         }
         finally
         {
-            value?.Dispose();
+            jsValue?.Dispose();
         }
     }
 
@@ -312,7 +323,7 @@ public class JsValue : IDisposable
 
     public virtual object? Call(JsValue?[]? arguments)
     {
-        if (!TryCall(out var error, out var value, arguments) || value == null)
+        if (!TryCall(out var error, out var jsValue, arguments) || IsNullOfUndefined(jsValue))
         {
             if (error != null)
                 throw error;
@@ -322,45 +333,11 @@ public class JsValue : IDisposable
 
         try
         {
-            return value.Value;
+            return jsValue.Value;
         }
         finally
         {
-            value.Dispose();
-        }
-    }
-
-    public virtual T? CallWithDefault<T>(T? defaultValue, params object[]? arguments)
-    {
-        var args = Convert(arguments);
-        try
-        {
-            return CallWithDefault(defaultValue, args);
-        }
-        finally
-        {
-            Dispose(args);
-        }
-    }
-
-    public virtual T CallWithDefault<T>(T defaultValue, JsValue[]? arguments)
-    {
-        if (!TryCall(out _, out var value, arguments))
-            return defaultValue;
-
-        if (typeof(T) == typeof(JsValue))
-            return (T)(object)value!;
-
-        if (value == null)
-            return defaultValue;
-
-        try
-        {
-            return ChangeType(value.Value, defaultValue);
-        }
-        finally
-        {
-            value.Dispose();
+            jsValue.Dispose();
         }
     }
 
@@ -379,17 +356,21 @@ public class JsValue : IDisposable
 
     public virtual bool TryCall(out Exception? error, out JsValue? value, JsValue?[]? arguments)
     {
-        nint[]? args = null;
-        if (arguments != null && arguments.Length > 0)
+        var args = new List<nint>();
+        if (arguments != null)
         {
-            args = new nint[arguments.Length];
-            for (var i = 0; i < arguments.Length; i++)
+            foreach (var arg in arguments)
             {
-                args[i] = arguments[i]?.Handle ?? 0;
+                if (arg == null)
+                {
+                    args.Add(0);
+                    continue;
+                }
+                args.Add(arg.Handle);
             }
         }
 
-        error = JsRuntime.Check(JsRuntime.JsCallFunction(Handle, args, (ushort)(args != null ? args.Length : 0), out var result), false);
+        error = JsRuntime.Check(JsRuntime.JsCallFunction(Handle, [.. args], (ushort)args.Count, out var result), false);
         if (error != null)
         {
             value = null;
@@ -429,16 +410,43 @@ public class JsValue : IDisposable
         return jsv;
     }
 
-    public static bool IsUndefined(object obj) => obj is JsValue jsv && jsv.ValueType == JsValueType.JsUndefined;
-    public static T ChangeType<T>(object? value, T defaultValue)
+    public static bool IsNullOfUndefined(object? obj) => obj is null || IsUndefined(obj);
+    public static bool IsUndefined(object? obj) => obj is JsValue jsv && jsv.ValueType == JsValueType.JsUndefined;
+
+    public static bool TryChangeType<T>(object? input, out T? value)
     {
-        if (value == null)
-            return defaultValue;
+        if (typeof(T) == typeof(object))
+        {
+            value = (T?)input;
+            return true;
+        }
 
-        if (value is T t)
-            return t;
+        if (input == null)
+        {
+            value = default;
+            return true;
+        }
 
-        return (T)System.Convert.ChangeType(value, typeof(T), CultureInfo.InvariantCulture);
+        if (input is T t)
+        {
+            value = t;
+            return true;
+        }
+
+        if (input is JsValue jsv)
+            return TryChangeType(jsv.Value, out value);
+
+        try
+        {
+            value = (T?)System.Convert.ChangeType(input, typeof(T), CultureInfo.InvariantCulture);
+            return true;
+
+        }
+        catch (Exception)
+        {
+            value = default;
+            return false;
+        }
     }
 
     private static Exception? VariantToValue(object? value, bool throwOnError, out nint handle)
