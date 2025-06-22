@@ -155,7 +155,7 @@ public class JsValue : IDisposable
     public virtual bool TrySetProperty(string name, object? value, bool useStrictRules, out Exception? error)
     {
         ArgumentNullException.ThrowIfNull(name);
-
+        var context = Context;
         nint id = 0;
         nint valueHandle = 0;
         error = null;
@@ -169,7 +169,7 @@ public class JsValue : IDisposable
                 throw new JsRuntimeException("JsGetPropertyIdFromName returned an incorrect value.");
 
             JsRuntime.AddRef(id);
-            error = VariantToValue(value, false, out valueHandle);
+            error = context.VariantToValue(value, false, out valueHandle);
             if (error != null)
                 return false;
 
@@ -190,11 +190,12 @@ public class JsValue : IDisposable
     public bool SetProperty(int index, object value) => TrySetProperty(index, value, out _);
     public virtual bool TrySetProperty(int index, object? value, out Exception? error)
     {
-        error = VariantToValue(value, false, out var valueHandle);
+        var context = Context;
+        error = context.VariantToValue(value, false, out var valueHandle);
         if (error != null)
             return false;
 
-        using var jsValue = FromObject(index);
+        using var jsValue = context.ObjectToValue(index);
         error = JsRuntime.Check(JsRuntime.JsSetIndexedProperty(Handle, jsValue.Handle, valueHandle));
         return error == null;
     }
@@ -274,7 +275,8 @@ public class JsValue : IDisposable
 
     public virtual bool TryGetProperty(int index, out Exception? error, out JsValue? value)
     {
-        using var iv = FromObject(index);
+        var context = Context;
+        using var iv = context.ObjectToValue(index);
         error = JsRuntime.Check(JsRuntime.JsGetIndexedProperty(Handle, iv.Handle, out nint valueHandle), false);
         if (error != null)
         {
@@ -325,7 +327,8 @@ public class JsValue : IDisposable
     public virtual object? Call(params object?[] arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
-        var args = Convert(arguments);
+        var context = Context;
+        var args = context.Convert(arguments);
         try
         {
             return Call(args);
@@ -359,7 +362,8 @@ public class JsValue : IDisposable
 
     public virtual bool TryCall(out Exception? error, out JsValue? value, params object?[] arguments)
     {
-        var args = Convert(arguments);
+        var context = Context;
+        var args = context.Convert(arguments);
         try
         {
             return TryCall(out error, out value, args);
@@ -401,25 +405,11 @@ public class JsValue : IDisposable
         }
     }
 
-    public static JsValue FromObject(object? value, bool throwOnError = true)
-    {
-        if (value is JsValue jsv)
-            return jsv;
-
-        var error = VariantToValue(value, true, out var handle);
-        if (error != null)
-        {
-            if (throwOnError)
-                throw new JsRuntimeException(error);
-
-            if (JsContext.Current == null)
-                throw new JsRuntimeException("No current context available to convert the value.");
-
-            return JsContext.Current.Null;
-        }
-
-        return new JsValue(handle);
-    }
+#pragma warning disable IDE0079 // Remove unnecessary suppression
+#pragma warning disable CA1822 // Mark members as static
+    private JsContext Context => JsContext.Current ?? throw new InvalidOperationException("No active JavaScript context.");
+#pragma warning restore CA1822 // Mark members as static
+#pragma warning restore IDE0079 // Remove unnecessary suppression
 
     public static bool IsUndefined(object? obj) => obj is JsValue jsv && jsv.ValueType == JsValueType.JsUndefined;
 
@@ -459,28 +449,11 @@ public class JsValue : IDisposable
         }
     }
 
-    private static Exception? VariantToValue(object? value, bool throwOnError, out nint handle)
-    {
-        using var v = new Variant(value);
-        var error = JsRuntime.Check(JsRuntime.JsVariantToValue(v.Detached, out handle), throwOnError);
-        return error;
-    }
-
     private static void Dispose(IEnumerable<JsValue> arguments)
     {
         foreach (var arg in arguments)
         {
             arg.Dispose();
         }
-    }
-
-    private static JsValue[] Convert(object?[] arguments)
-    {
-        var values = new JsValue[arguments.Length];
-        for (var i = 0; i < arguments.Length; i++)
-        {
-            values[i] = FromObject(arguments[i]);
-        }
-        return values;
     }
 }

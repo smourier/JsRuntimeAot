@@ -365,7 +365,7 @@ namespace JsRt
 	
 	    public virtual object? RunScript(string script, string? sourceUrl = null)
 	    {
-	        if (!TryRunScript(script, sourceUrl, out var error, out var value))
+	        if (!TryRunScript(script, sourceUrl, out var error, out var jsValue) || jsValue == null)
 	        {
 	            if (error != null)
 	                throw error;
@@ -373,16 +373,13 @@ namespace JsRt
 	            return null;
 	        }
 	
-	        if (value == null)
-	            return null;
-	
 	        try
 	        {
-	            return value.Value;
+	            return jsValue.Value;
 	        }
 	        finally
 	        {
-	            value.Dispose();
+	            jsValue.Dispose();
 	        }
 	    }
 	
@@ -1063,20 +1060,19 @@ namespace JsRt
 	            return false;
 	        }
 	
-	        JsValue? jsValue = null;
+	        if (!fn.TryCall(out _, out var jsValue, arguments) || jsValue == null)
+	        {
+	            value = default;
+	            return false;
+	        }
+	
 	        try
 	        {
-	            if (!fn.TryCall(out var error, out jsValue, arguments) || jsValue == null)
-	            {
-	                value = default;
-	                return false;
-	            }
-	
 	            return TryChangeType(jsValue.Value, out value);
 	        }
 	        finally
 	        {
-	            jsValue?.Dispose();
+	            jsValue.Dispose();
 	        }
 	    }
 	

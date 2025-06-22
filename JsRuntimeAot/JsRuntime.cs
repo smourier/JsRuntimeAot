@@ -103,7 +103,7 @@ public partial class JsRuntime : IDisposable
         Check(JsCollectGarbage(Handle));
     }
 
-    private void CheckDisposed() => ObjectDisposedException.ThrowIf(_handle == 0, "Engine has been disposed.");
+    private void CheckDisposed() => ObjectDisposedException.ThrowIf(_handle == 0, nameof(JsRuntime));
 
     public virtual JsContext CreateContext()
     {
