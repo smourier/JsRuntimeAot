@@ -1,8 +1,15 @@
 ﻿namespace JsRt;
 
-public class JsContext : IDisposable
+public class JsContext : IDisposable, IEquatable<JsContext>
 {
+    private readonly Lazy<JsValue> _globalObject = new(() => { JsRuntime.Check(JsRuntime.JsGetGlobalObject(out var handle)); return new JsValue(handle); });
+    private readonly Lazy<JsValue> _undefined = new(() => { JsRuntime.JsGetUndefinedValue(out var handle); return new JsValue(handle); });
+    private readonly Lazy<JsValue> _null = new(() => { JsRuntime.JsGetNullValue(out var handle); return new JsValue(handle); });
+    private readonly Lazy<JsValue> _true = new(() => { JsRuntime.JsGetTrueValue(out var handle); return new JsValue(handle); });
+    private readonly Lazy<JsValue> _false = new(() => { JsRuntime.JsGetFalseValue(out var handle); return new JsValue(handle); });
+
     private nint _handle;
+    private static readonly Lock _currentLock = new();
 
     public JsContext(nint handle, bool addRef)
     {
@@ -52,14 +59,19 @@ public class JsContext : IDisposable
         }
     }
 
-    public JsValue Undefined { get { JsRuntime.JsGetUndefinedValue(out var handle); return new(handle); } }
-    public JsValue Null { get { JsRuntime.JsGetNullValue(out var handle); return new(handle); } }
-    public JsValue True { get { JsRuntime.JsGetTrueValue(out var handle); return new(handle); } }
-    public JsValue False { get { JsRuntime.JsGetFalseValue(out var handle); return new(handle); } }
-    public JsValue GlobalObject { get { JsRuntime.Check(JsRuntime.JsGetGlobalObject(out var handle)); return new JsValue(handle); } }
+    public JsValue Undefined => _undefined.Value;
+    public JsValue Null => _null.Value;
+    public JsValue True => _true.Value;
+    public JsValue False => _false.Value;
+    public JsValue GlobalObject => _globalObject.Value;
 #pragma warning restore CA1822 // Mark members as static
 #pragma warning restore IDE0079 // Remove unnecessary suppression
 
+    public bool Equals(JsContext? other) => other is not null && _handle == other._handle;
+    public override bool Equals(object? obj) => obj is JsContext other && Equals(other);
+    public override int GetHashCode() => _handle.GetHashCode();
+    public static bool operator ==(JsContext? left, JsContext? right) => left?.Equals(right) ?? right is null;
+    public static bool operator !=(JsContext? left, JsContext? right) => !(left == right);
     public override string ToString() => Handle.ToString();
 
     public void AddGlobalObject(string name, object? value)
@@ -69,51 +81,6 @@ public class JsContext : IDisposable
             throw new ArgumentException("Argument type must be ComVisible.", nameof(value));
 
         GlobalObject.SetProperty(name, value);
-    }
-
-    public virtual void Execute(Action action)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        var prev = Current;
-        Current = this;
-        try
-        {
-            action();
-        }
-        finally
-        {
-            Current = prev;
-        }
-    }
-
-    public virtual T Execute<T>(Func<T> action)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        var prev = Current;
-        Current = this;
-        try
-        {
-            return action();
-        }
-        finally
-        {
-            Current = prev;
-        }
-    }
-
-    public virtual async Task<T> Execute<T>(Func<Task<T>> action)
-    {
-        ArgumentNullException.ThrowIfNull(action);
-        var prev = Current;
-        Current = this;
-        try
-        {
-            return await action();
-        }
-        finally
-        {
-            Current = prev;
-        }
     }
 
     public JsValue ObjectToValue(object? value, bool throwOnError = true)
@@ -140,6 +107,30 @@ public class JsContext : IDisposable
         var handle = Interlocked.Exchange(ref _handle, 0);
         if (handle != 0)
         {
+            if (_null.IsValueCreated)
+            {
+                _null.Value.Dispose();
+            }
+
+            if (_undefined.IsValueCreated)
+            {
+                _undefined.Value.Dispose();
+            }
+
+            if (_true.IsValueCreated)
+            {
+                _true.Value.Dispose();
+            }
+
+            if (_false.IsValueCreated)
+            {
+                _false.Value.Dispose();
+            }
+
+            if (_globalObject.IsValueCreated)
+            {
+                _globalObject.Value.Dispose();
+            }
             JsRuntime.Release(handle);
         }
     }
@@ -157,14 +148,36 @@ public class JsContext : IDisposable
         return values;
     }
 
+    private static JsContext? _current;
     public static JsContext? Current
     {
         get
         {
-            JsRuntime.Check(JsRuntime.JsGetCurrentContext(out var handle));
-            return handle != 0 ? new JsContext(handle, false) : null;
+            if (_current is null)
+            {
+                lock (_currentLock)
+                {
+                    JsRuntime.Check(JsRuntime.JsGetCurrentContext(out var handle));
+                    if (handle != 0)
+                    {
+                        _current = new JsContext(handle, true);
+                    }
+                }
+            }
+            return _current;
         }
-        set => JsRuntime.JsSetCurrentContext(value != null ? value.Handle : 0);
+        set
+        {
+            if (_current == value)
+                return;
+
+            lock (_currentLock)
+            {
+                _current?.Dispose();
+                _current = value;
+                JsRuntime.Check(JsRuntime.JsSetCurrentContext(value != null ? value.Handle : 0));
+            }
+        }
     }
 
 #pragma warning disable IDE0079 // Remove unnecessary suppression

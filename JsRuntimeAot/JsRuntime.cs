@@ -1,10 +1,9 @@
 ﻿namespace JsRt;
 
-public partial class JsRuntime : IDisposable
+public partial class JsRuntime : IDisposable, IEquatable<JsRuntime>
 {
     public const string JsDll = "jscript9.dll";
 
-    private readonly Lock _lock = new();
     private nint _handle;
 
     public JsRuntime(JsRuntimeAttributes attributes, JsRuntimeVersion version)
@@ -35,8 +34,6 @@ public partial class JsRuntime : IDisposable
         _handle = handle;
     }
 
-    public virtual bool CacheParsedScripts { get; set; }
-    public IDictionary<string, JsValue> ParsedScriptCache { get; } = new Dictionary<string, JsValue>();
     public nint Handle
     {
         get
@@ -96,6 +93,11 @@ public partial class JsRuntime : IDisposable
         }
     }
 
+    public bool Equals(JsRuntime? other) => other is not null && _handle == other._handle;
+    public override bool Equals(object? obj) => obj is JsRuntime other && Equals(other);
+    public override int GetHashCode() => _handle.GetHashCode();
+    public static bool operator ==(JsRuntime? left, JsRuntime? right) => left?.Equals(right) ?? right is null;
+    public static bool operator !=(JsRuntime? left, JsRuntime? right) => !(left == right);
     public override string ToString() => Handle.ToString();
     public virtual void CollectGarbage()
     {
@@ -104,6 +106,48 @@ public partial class JsRuntime : IDisposable
     }
 
     private void CheckDisposed() => ObjectDisposedException.ThrowIf(_handle == 0, nameof(JsRuntime));
+
+    public virtual void WithContext(Action<JsContext> action)
+    {
+        using var ctx = CreateContext();
+        JsContext.Current = ctx;
+        try
+        {
+            action(ctx);
+        }
+        finally
+        {
+            JsContext.Current = null;
+        }
+    }
+
+    public virtual T WithContext<T>(Func<JsContext, T> action)
+    {
+        using var ctx = CreateContext();
+        JsContext.Current = ctx;
+        try
+        {
+            return action(ctx);
+        }
+        finally
+        {
+            JsContext.Current = null;
+        }
+    }
+
+    public virtual async Task<T> WithContext<T>(Func<JsContext, Task<T>> action)
+    {
+        using var ctx = CreateContext();
+        JsContext.Current = ctx;
+        try
+        {
+            return await action(ctx);
+        }
+        finally
+        {
+            JsContext.Current = null;
+        }
+    }
 
     public virtual JsContext CreateContext()
     {
@@ -137,30 +181,6 @@ public partial class JsRuntime : IDisposable
     {
         ArgumentNullException.ThrowIfNull(script);
         sourceUrl ??= string.Empty;
-
-        lock (_lock)
-        {
-            if (CacheParsedScripts && JsContext.Current != null)
-            {
-                // cache per context
-                var key = JsContext.Current.Handle + "." + script;
-                if (!ParsedScriptCache.TryGetValue(key, out var ps))
-                {
-                    error = Check(JsParseScript(script, 0, sourceUrl, out var psHandle), false);
-                    if (error != null)
-                    {
-                        // errored scripts are not cached
-                        value = null;
-                        return false;
-                    }
-
-                    ps = new JsValue(psHandle);
-                    ParsedScriptCache.Add(key, ps);
-                }
-                return ps.TryCall(out error, out value);
-            }
-        }
-
         error = Check(JsRunScript(script, 0, sourceUrl, out var result), false);
         if (error != null)
         {
@@ -338,7 +358,7 @@ public partial class JsRuntime : IDisposable
     public static object? Eval(string script)
     {
         using var rt = new JsRuntime();
-        return rt.CreateContext().Execute(() => rt.RunScript(script));
+        return rt.WithContext(ctx => rt.RunScript(script));
     }
 
     public static uint Idle()

@@ -1,6 +1,6 @@
 ﻿namespace JsRt;
 
-public class JsValue : IDisposable
+public class JsValue : IDisposable, IEquatable<JsValue>
 {
     private nint _handle;
 
@@ -25,6 +25,11 @@ public class JsValue : IDisposable
         }
     }
 
+    public bool Equals(JsValue? other) => other is not null && _handle == other._handle;
+    public override bool Equals(object? obj) => obj is JsValue other && Equals(other);
+    public override int GetHashCode() => _handle.GetHashCode();
+    public static bool operator ==(JsValue? left, JsValue? right) => left?.Equals(right) ?? right is null;
+    public static bool operator !=(JsValue? left, JsValue? right) => !(left == right);
     public override string ToString()
     {
         if (ValueType == JsValueType.JsNull || ValueType == JsValueType.JsUndefined)
@@ -288,6 +293,7 @@ public class JsValue : IDisposable
         return true;
     }
 
+    // don't forget the first argument is the function pointer or null if the function is global/static
     public virtual object? CallFunction(string name, params object?[]? arguments) => CallFunction<object?>(name, arguments);
     public virtual T? CallFunction<T>(string name, params object?[]? arguments)
     {
