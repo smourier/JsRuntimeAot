@@ -17,16 +17,25 @@ public class JsContext : IDisposable
         _handle = handle;
         if (addRef)
         {
-            JsRuntime.AddRef(handle, true, out var count);
-            if (count > MaxRefCount)
-            {
-                MaxRefCount = count;
-            }
+            JsRuntime.AddRef(handle);
         }
     }
 
-    public nint Handle => _handle;
+    public nint Handle
+    {
+        get
+        {
+            var handle = _handle;
+            ObjectDisposedException.ThrowIf(handle == 0, nameof(JsValue));
+            return handle;
+        }
+    }
+
     public JsValue GlobalObject => _go.Value;
+    public JsValue Undefined => _undefined.Value;
+    public JsValue True => _true.Value;
+    public JsValue False => _false.Value;
+    public JsValue Null => _null.Value;
     public JsRuntime? Runtime
     {
         get
@@ -111,48 +120,38 @@ public class JsContext : IDisposable
     public void Dispose() { Dispose(disposing: true); GC.SuppressFinalize(this); }
     protected virtual void Dispose(bool disposing)
     {
+        if (_go.IsValueCreated)
+        {
+            _go.Value?.Dispose();
+        }
+
+        if (_null.IsValueCreated)
+        {
+            _null.Value?.Dispose();
+        }
+
+        if (_true.IsValueCreated)
+        {
+            _true.Value?.Dispose();
+        }
+
+        if (_false.IsValueCreated)
+        {
+            _false.Value?.Dispose();
+        }
+
+        if (_undefined.IsValueCreated)
+        {
+            _undefined.Value?.Dispose();
+        }
+
         var handle = Interlocked.Exchange(ref _handle, 0);
         if (handle != 0)
         {
-            if (_go.IsValueCreated)
-            {
-                _go.Value?.Dispose();
-            }
-
-            if (_null.IsValueCreated)
-            {
-                _null.Value?.Dispose();
-            }
-
-            if (_true.IsValueCreated)
-            {
-                _true.Value?.Dispose();
-            }
-
-            if (_false.IsValueCreated)
-            {
-                _false.Value?.Dispose();
-            }
-
-            if (_undefined.IsValueCreated)
-            {
-                _undefined.Value?.Dispose();
-            }
-
-            JsRuntime.Release(handle, true, out var count);
-            if (count > MaxRefCount)
-            {
-                MaxRefCount = count;
-            }
+            JsRuntime.Release(handle);
         }
     }
 
-    public JsValue Undefined => _undefined.Value;
-    public JsValue True => _true.Value;
-    public JsValue False => _false.Value;
-    public JsValue Null => _null.Value;
-
-    public static int MaxRefCount { get; private set; }
     public static JsContext? Current
     {
         get

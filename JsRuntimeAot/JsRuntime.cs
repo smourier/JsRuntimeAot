@@ -37,7 +37,16 @@ public partial class JsRuntime : IDisposable
 
     public virtual bool CacheParsedScripts { get; set; }
     public IDictionary<string, JsValue> ParsedScriptCache { get; } = new Dictionary<string, JsValue>();
-    public nint Handle => _handle;
+    public nint Handle
+    {
+        get
+        {
+            var handle = _handle;
+            ObjectDisposedException.ThrowIf(handle == 0, nameof(JsValue));
+            return handle;
+        }
+    }
+
     public long MemoryUsage
     {
         get
@@ -105,7 +114,7 @@ public partial class JsRuntime : IDisposable
 
     public virtual object? RunScript(string script, string? sourceUrl = null)
     {
-        if (!TryRunScript(script, sourceUrl, out var error, out var value))
+        if (!TryRunScript(script, sourceUrl, out var error, out var jsValue) || jsValue == null)
         {
             if (error != null)
                 throw error;
@@ -113,16 +122,13 @@ public partial class JsRuntime : IDisposable
             return null;
         }
 
-        if (value == null)
-            return null;
-
         try
         {
-            return value.Value;
+            return jsValue.Value;
         }
         finally
         {
-            value.Dispose();
+            jsValue.Dispose();
         }
     }
 
@@ -296,7 +302,7 @@ public partial class JsRuntime : IDisposable
     protected internal static partial JsErrorCode JsGetPrototype(nint @object, out nint prototypeObject);
 
     [LibraryImport(JsDll)]
-    protected internal static partial JsErrorCode JsAddRef(nint handle, out int count);
+    protected internal static partial JsErrorCode JsAddRef(nint handle, out uint count);
 
     [LibraryImport(JsDll)]
     protected internal static partial JsErrorCode JsGetUndefinedValue(out nint handle);
@@ -311,7 +317,10 @@ public partial class JsRuntime : IDisposable
     protected internal static partial JsErrorCode JsGetTrueValue(out nint handle);
 
     [LibraryImport(JsDll)]
-    protected internal static partial JsErrorCode JsRelease(nint handle, out int count);
+    protected internal static partial JsErrorCode JsConvertValueToString(nint value, out nint handle);
+
+    [LibraryImport(JsDll)]
+    protected internal static partial JsErrorCode JsRelease(nint handle, out uint count);
 #pragma warning restore CA1401 // P/Invokes should not be visible
 #pragma warning restore IDE0079 // Remove unnecessary suppression
 
@@ -338,30 +347,8 @@ public partial class JsRuntime : IDisposable
         return ticks;
     }
 
-    internal protected static Exception? AddRef(nint handle, bool throwOnError = true) => AddRef(handle, throwOnError, out _);
-    internal protected static Exception? AddRef(nint handle, bool throwOnError, out int count)
-    {
-        if (handle == 0)
-        {
-            count = 0;
-            return null;
-        }
-
-        return Check(JsAddRef(handle, out count), throwOnError);
-    }
-
-    internal protected static Exception? Release(nint handle, bool throwOnError = true) => Release(handle, throwOnError, out _);
-    internal protected static Exception? Release(nint handle, bool throwOnError, out int count)
-    {
-        if (handle == 0)
-        {
-            count = 0;
-            return null;
-        }
-
-        return Check(JsRelease(handle, out count), throwOnError);
-    }
-
+    internal protected static uint AddRef(nint handle, bool throwOnError = true) { Check(JsAddRef(handle, out var count), throwOnError); return count; }
+    internal protected static uint Release(nint handle, bool throwOnError = true) { Check(JsRelease(handle, out var count), throwOnError); return count; }
     internal static Exception? Check(JsErrorCode code, bool throwOnError = true)
     {
         Exception? error = null;

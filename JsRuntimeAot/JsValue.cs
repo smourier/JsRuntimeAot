@@ -12,15 +12,18 @@ public class JsValue : IDisposable
         _handle = handle;
         JsRuntime.Check(JsRuntime.JsGetValueType(Handle, out var vt));
         ValueType = vt;
-
-        JsRuntime.AddRef(handle, true, out var count);
-        if (count > MaxRefCount)
-        {
-            MaxRefCount = count;
-        }
+        JsRuntime.AddRef(handle);
     }
 
-    public nint Handle => _handle;
+    public nint Handle
+    {
+        get
+        {
+            var handle = _handle;
+            ObjectDisposedException.ThrowIf(handle == 0, nameof(JsValue));
+            return handle;
+        }
+    }
 
     public override string ToString()
     {
@@ -41,6 +44,16 @@ public class JsValue : IDisposable
             var value = variant.Value;
             return value;
         }
+    }
+
+    public string? ConvertToString()
+    {
+        JsRuntime.Check(JsRuntime.JsConvertValueToString(Handle, out var handle), false);
+        if (handle == 0)
+            return null;
+
+        using var strValue = new JsValue(handle);
+        return strValue.Value?.ToString();
     }
 
     public virtual object? DetachValue()
@@ -189,15 +202,15 @@ public class JsValue : IDisposable
     public virtual object? GetProperty(string name, object? defaultValue = default) => GetProperty<object?>(name, defaultValue);
     public virtual T? GetProperty<T>(string name, T? defaultValue = default)
     {
-        if (!TryGetProperty(name, out _, out var jsValue) || IsNullOfUndefined(jsValue))
+        if (!TryGetProperty(name, out _, out var jsValue) || jsValue == null)
             return defaultValue;
 
         if (typeof(T) == typeof(JsValue))
-            return (T)(object)jsValue!;
+            return (T?)(object?)jsValue;
 
         try
         {
-            if (TryChangeType<T>(jsValue!.Value, out var value))
+            if (TryChangeType<T>(jsValue.Value, out var value))
                 return value;
 
             return defaultValue;
@@ -211,7 +224,6 @@ public class JsValue : IDisposable
     public virtual bool TryGetProperty(string name, out Exception? error, out JsValue? value)
     {
         ArgumentNullException.ThrowIfNull(name);
-
         nint id = 0;
         try
         {
@@ -241,7 +253,7 @@ public class JsValue : IDisposable
 
     public virtual T? GetProperty<T>(int index, T? defaultValue = default)
     {
-        if (!TryGetProperty(index, out _, out var jsValue) || IsNullOfUndefined(jsValue))
+        if (!TryGetProperty(index, out _, out var jsValue) || jsValue == null)
             return defaultValue;
 
         if (typeof(T) == typeof(JsValue))
@@ -249,7 +261,7 @@ public class JsValue : IDisposable
 
         try
         {
-            if (TryChangeType<T>(jsValue!.Value, out var value))
+            if (TryChangeType<T>(jsValue.Value, out var value))
                 return value;
 
             return defaultValue;
@@ -288,26 +300,25 @@ public class JsValue : IDisposable
     {
         ArgumentNullException.ThrowIfNull(name);
         using var fn = GetProperty<JsValue>(name);
-        if (IsNullOfUndefined(fn))
+        if (fn == null)
         {
             value = default;
             return false;
         }
 
-        JsValue? jsValue = null;
+        if (!fn.TryCall(out _, out var jsValue, arguments) || jsValue == null)
+        {
+            value = default;
+            return false;
+        }
+
         try
         {
-            if (!fn!.TryCall(out var error, out jsValue, arguments) || IsNullOfUndefined(jsValue))
-            {
-                value = default;
-                return false;
-            }
-
-            return TryChangeType(jsValue!.Value, out value);
+            return TryChangeType(jsValue.Value, out value);
         }
         finally
         {
-            jsValue?.Dispose();
+            jsValue.Dispose();
         }
     }
 
@@ -328,7 +339,7 @@ public class JsValue : IDisposable
     public virtual object? Call(JsValue[] arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
-        if (!TryCall(out var error, out var jsValue, arguments) || IsNullOfUndefined(jsValue))
+        if (!TryCall(out var error, out var jsValue, arguments) || jsValue == null)
         {
             if (error != null)
                 throw error;
@@ -338,11 +349,11 @@ public class JsValue : IDisposable
 
         try
         {
-            return jsValue!.Value;
+            return jsValue.Value;
         }
         finally
         {
-            jsValue!.Dispose();
+            jsValue.Dispose();
         }
     }
 
@@ -359,7 +370,7 @@ public class JsValue : IDisposable
         }
     }
 
-    public virtual bool TryCall(out Exception? error, out JsValue? value, JsValue[] arguments)
+    public virtual bool TryCall(out Exception? error, out JsValue? value, JsValue[] arguments, bool throwOnError = true)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         var args = new List<nint>();
@@ -368,14 +379,14 @@ public class JsValue : IDisposable
             args.Add(arg.Handle);
         }
 
-        error = JsRuntime.Check(JsRuntime.JsCallFunction(Handle, [.. args], (ushort)args.Count, out var result), false);
+        error = JsRuntime.Check(JsRuntime.JsCallFunction(Handle, [.. args], (ushort)args.Count, out var handle), throwOnError);
         if (error != null)
         {
             value = null;
             return false;
         }
 
-        value = new JsValue(result);
+        value = new JsValue(handle);
         return true;
     }
 
@@ -386,15 +397,9 @@ public class JsValue : IDisposable
         var h = Interlocked.Exchange(ref _handle, 0);
         if (h != 0)
         {
-            JsRuntime.Release(h, true, out var count);
-            if (count > MaxRefCount)
-            {
-                MaxRefCount = count;
-            }
+            JsRuntime.Release(h);
         }
     }
-
-    public static int MaxRefCount { get; set; }
 
     public static JsValue FromObject(object? value, bool throwOnError = true)
     {
@@ -416,7 +421,6 @@ public class JsValue : IDisposable
         return new JsValue(handle);
     }
 
-    public static bool IsNullOfUndefined(object? obj) => obj is null || IsUndefined(obj);
     public static bool IsUndefined(object? obj) => obj is JsValue jsv && jsv.ValueType == JsValueType.JsUndefined;
 
     public static bool TryChangeType<T>(object? input, out T? value)

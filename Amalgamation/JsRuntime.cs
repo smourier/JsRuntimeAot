@@ -54,6 +54,7 @@ namespace JsRt
 	    private readonly Lazy<JsValue> _null = new(() => { JsRuntime.JsGetNullValue(out var handle); return new(handle); });
 	    private readonly Lazy<JsValue> _true = new(() => { JsRuntime.JsGetTrueValue(out var handle); return new(handle); });
 	    private readonly Lazy<JsValue> _false = new(() => { JsRuntime.JsGetFalseValue(out var handle); return new(handle); });
+	    private readonly Lazy<JsValue> _go = new(() => { JsRuntime.Check(JsRuntime.JsGetGlobalObject(out var handle)); return new JsValue(handle); });
 	    private nint _handle;
 	
 	    public JsContext(nint handle, bool addRef)
@@ -64,15 +65,25 @@ namespace JsRt
 	        _handle = handle;
 	        if (addRef)
 	        {
-	            JsRuntime.AddRef(handle, true, out var count);
-	            if (count > MaxRefCount)
-	            {
-	                MaxRefCount = count;
-	            }
+	            JsRuntime.AddRef(handle);
 	        }
 	    }
 	
-	    public nint Handle => _handle;
+	    public nint Handle
+	    {
+	        get
+	        {
+	            var handle = _handle;
+	            ObjectDisposedException.ThrowIf(handle == 0, nameof(JsValue));
+	            return handle;
+	        }
+	    }
+	
+	    public JsValue GlobalObject => _go.Value;
+	    public JsValue Undefined => _undefined.Value;
+	    public JsValue True => _true.Value;
+	    public JsValue False => _false.Value;
+	    public JsValue Null => _null.Value;
 	    public JsRuntime? Runtime
 	    {
 	        get
@@ -85,7 +96,29 @@ namespace JsRt
 	        }
 	    }
 	
+	    public Version? EngineVersion
+	    {
+	        get
+	        {
+	            var go = GlobalObject;
+	            var major = go.CallFunction<int>("ScriptEngineMajorVersion");
+	            var minor = go.CallFunction<int>("ScriptEngineMinorVersion");
+	            var build = go.CallFunction<int>("ScriptEngineBuildVersion");
+	            return new Version(major, minor, Environment.OSVersion.Version.Build, build);
+	        }
+	    }
+	
 	    public override string ToString() => Handle.ToString();
+	
+	    public virtual void AddGlobalObject(string name, object? value)
+	    {
+	        ArgumentNullException.ThrowIfNull(name);
+	        if (value != null && !Marshal.IsTypeVisibleFromCom(value.GetType()) && !Marshal.IsComObject(value))
+	            throw new ArgumentException("Argument type must be ComVisible.", nameof(value));
+	
+	        GlobalObject.SetProperty(name, value);
+	    }
+	
 	    public virtual void Execute(Action action)
 	    {
 	        ArgumentNullException.ThrowIfNull(action);
@@ -135,23 +168,38 @@ namespace JsRt
 	    public void Dispose() { Dispose(disposing: true); GC.SuppressFinalize(this); }
 	    protected virtual void Dispose(bool disposing)
 	    {
+	        if (_go.IsValueCreated)
+	        {
+	            _go.Value?.Dispose();
+	        }
+	
+	        if (_null.IsValueCreated)
+	        {
+	            _null.Value?.Dispose();
+	        }
+	
+	        if (_true.IsValueCreated)
+	        {
+	            _true.Value?.Dispose();
+	        }
+	
+	        if (_false.IsValueCreated)
+	        {
+	            _false.Value?.Dispose();
+	        }
+	
+	        if (_undefined.IsValueCreated)
+	        {
+	            _undefined.Value?.Dispose();
+	        }
+	
 	        var handle = Interlocked.Exchange(ref _handle, 0);
 	        if (handle != 0)
 	        {
-	            JsRuntime.Release(handle, true, out var count);
-	            if (count > MaxRefCount)
-	            {
-	                MaxRefCount = count;
-	            }
+	            JsRuntime.Release(handle);
 	        }
 	    }
 	
-	    public JsValue Undefined => _undefined.Value;
-	    public JsValue True => _true.Value;
-	    public JsValue False => _false.Value;
-	    public JsValue Null => _null.Value;
-	
-	    public static int MaxRefCount { get; private set; }
 	    public static JsContext? Current
 	    {
 	        get
@@ -208,13 +256,11 @@ namespace JsRt
 	    public const string JsDll = "jscript9.dll";
 	
 	    private readonly Lock _lock = new();
-	    private Lazy<JsValue> _go;
 	    private nint _handle;
 	
 	    public JsRuntime(JsRuntimeAttributes attributes, JsRuntimeVersion version)
 	    {
 	        Check(JsCreateRuntime(attributes, version, null, out _handle));
-	        _go = new Lazy<JsValue>(() => { JsGetGlobalObject(out var go); return new JsValue(go); });
 	    }
 	
 	    public JsRuntime()
@@ -238,13 +284,20 @@ namespace JsRt
 	            throw new ArgumentException(null, nameof(handle));
 	
 	        _handle = handle;
-	        _go = new Lazy<JsValue>(() => { JsGetGlobalObject(out var go); return new JsValue(go); });
 	    }
 	
 	    public virtual bool CacheParsedScripts { get; set; }
 	    public IDictionary<string, JsValue> ParsedScriptCache { get; } = new Dictionary<string, JsValue>();
-	    public nint Handle => _handle;
-	    public JsValue GlobalObject => _go.Value;
+	    public nint Handle
+	    {
+	        get
+	        {
+	            var handle = _handle;
+	            ObjectDisposedException.ThrowIf(handle == 0, nameof(JsValue));
+	            return handle;
+	        }
+	    }
+	
 	    public long MemoryUsage
 	    {
 	        get
@@ -267,21 +320,6 @@ namespace JsRt
 	        {
 	            CheckDisposed();
 	            Check(JsSetRuntimeMemoryLimit(Handle, new nint(value)));
-	        }
-	    }
-	
-	    public Version? EngineVersion
-	    {
-	        get
-	        {
-	            var go = GlobalObject;
-	            if (go == null)
-	                return null;
-	
-	            var major = go.CallFunction<int>("ScriptEngineMajorVersion");
-	            var minor = go.CallFunction<int>("ScriptEngineMinorVersion");
-	            var build = go.CallFunction<int>("ScriptEngineBuildVersion");
-	            return new Version(major, minor, Environment.OSVersion.Version.Build, build);
 	        }
 	    }
 	
@@ -323,19 +361,6 @@ namespace JsRt
 	        CheckDisposed();
 	        Check(JsCreateContext(Handle, 0, out var handle));
 	        return new JsContext(handle, true);
-	    }
-	
-	    public virtual void AddGlobalObject(string name, object? value)
-	    {
-	        ArgumentNullException.ThrowIfNull(name);
-	        if (value != null && !Marshal.IsTypeVisibleFromCom(value.GetType()) && !Marshal.IsComObject(value))
-	            throw new ArgumentException("Argument type must be ComVisible.", nameof(value));
-	
-	        var go = GlobalObject;
-	        if (go == null)
-	            return;
-	
-	        go.SetProperty(name, value);
 	    }
 	
 	    public virtual object? RunScript(string script, string? sourceUrl = null)
@@ -382,6 +407,7 @@ namespace JsRt
 	                        value = null;
 	                        return false;
 	                    }
+	
 	                    ps = new JsValue(psHandle);
 	                    ParsedScriptCache.Add(key, ps);
 	                }
@@ -530,7 +556,7 @@ namespace JsRt
 	    protected internal static partial JsErrorCode JsGetPrototype(nint @object, out nint prototypeObject);
 	
 	    [LibraryImport(JsDll)]
-	    protected internal static partial JsErrorCode JsAddRef(nint handle, out int count);
+	    protected internal static partial JsErrorCode JsAddRef(nint handle, out uint count);
 	
 	    [LibraryImport(JsDll)]
 	    protected internal static partial JsErrorCode JsGetUndefinedValue(out nint handle);
@@ -545,7 +571,10 @@ namespace JsRt
 	    protected internal static partial JsErrorCode JsGetTrueValue(out nint handle);
 	
 	    [LibraryImport(JsDll)]
-	    protected internal static partial JsErrorCode JsRelease(nint handle, out int count);
+	    protected internal static partial JsErrorCode JsConvertValueToString(nint value, out nint handle);
+	
+	    [LibraryImport(JsDll)]
+	    protected internal static partial JsErrorCode JsRelease(nint handle, out uint count);
 	#pragma warning restore CA1401 // P/Invokes should not be visible
 	#pragma warning restore IDE0079 // Remove unnecessary suppression
 	
@@ -556,10 +585,6 @@ namespace JsRt
 	        var handle = Interlocked.Exchange(ref _handle, 0);
 	        if (handle != 0)
 	        {
-	            if (_go.IsValueCreated)
-	            {
-	                _go.Value?.Dispose();
-	            }
 	            JsDisposeRuntime(handle);
 	        }
 	    }
@@ -576,30 +601,8 @@ namespace JsRt
 	        return ticks;
 	    }
 	
-	    internal protected static Exception? AddRef(nint handle, bool throwOnError = true) => AddRef(handle, throwOnError, out _);
-	    internal protected static Exception? AddRef(nint handle, bool throwOnError, out int count)
-	    {
-	        if (handle == 0)
-	        {
-	            count = 0;
-	            return null;
-	        }
-	
-	        return Check(JsAddRef(handle, out count), throwOnError);
-	    }
-	
-	    internal protected static Exception? Release(nint handle, bool throwOnError = true) => Release(handle, throwOnError, out _);
-	    internal protected static Exception? Release(nint handle, bool throwOnError, out int count)
-	    {
-	        if (handle == 0)
-	        {
-	            count = 0;
-	            return null;
-	        }
-	
-	        return Check(JsRelease(handle, out count), throwOnError);
-	    }
-	
+	    internal protected static uint AddRef(nint handle, bool throwOnError = true) { Check(JsAddRef(handle, out var count), throwOnError); return count; }
+	    internal protected static uint Release(nint handle, bool throwOnError = true) { Check(JsRelease(handle, out var count), throwOnError); return count; }
 	    internal static Exception? Check(JsErrorCode code, bool throwOnError = true)
 	    {
 	        Exception? error = null;
@@ -760,21 +763,24 @@ namespace JsRt
 	
 	    public JsValue(nint handle)
 	    {
-	        //if (handle == 0)
-	        //throw new ArgumentException(null, nameof(handle));
+	        if (handle == 0)
+	            throw new ArgumentException(null, nameof(handle));
 	
 	        _handle = handle;
 	        JsRuntime.Check(JsRuntime.JsGetValueType(Handle, out var vt));
 	        ValueType = vt;
-	
-	        JsRuntime.AddRef(handle, true, out var count);
-	        if (count > MaxRefCount)
-	        {
-	            MaxRefCount = count;
-	        }
+	        JsRuntime.AddRef(handle);
 	    }
 	
-	    public nint Handle => _handle;
+	    public nint Handle
+	    {
+	        get
+	        {
+	            var handle = _handle;
+	            ObjectDisposedException.ThrowIf(handle == 0, nameof(JsValue));
+	            return handle;
+	        }
+	    }
 	
 	    public override string ToString()
 	    {
@@ -795,6 +801,16 @@ namespace JsRt
 	            var value = variant.Value;
 	            return value;
 	        }
+	    }
+	
+	    public string? ConvertToString()
+	    {
+	        JsRuntime.Check(JsRuntime.JsConvertValueToString(Handle, out var handle), false);
+	        if (handle == 0)
+	            return null;
+	
+	        using var strValue = new JsValue(handle);
+	        return strValue.Value?.ToString();
 	    }
 	
 	    public virtual object? DetachValue()
@@ -943,15 +959,15 @@ namespace JsRt
 	    public virtual object? GetProperty(string name, object? defaultValue = default) => GetProperty<object?>(name, defaultValue);
 	    public virtual T? GetProperty<T>(string name, T? defaultValue = default)
 	    {
-	        if (!TryGetProperty(name, out _, out var jsValue) || IsNullOfUndefined(jsValue))
+	        if (!TryGetProperty(name, out _, out var jsValue) || jsValue == null)
 	            return defaultValue;
 	
 	        if (typeof(T) == typeof(JsValue))
-	            return (T)(object)jsValue!;
+	            return (T?)(object?)jsValue;
 	
 	        try
 	        {
-	            if (TryChangeType<T>(jsValue!.Value, out var value))
+	            if (TryChangeType<T>(jsValue.Value, out var value))
 	                return value;
 	
 	            return defaultValue;
@@ -965,7 +981,6 @@ namespace JsRt
 	    public virtual bool TryGetProperty(string name, out Exception? error, out JsValue? value)
 	    {
 	        ArgumentNullException.ThrowIfNull(name);
-	
 	        nint id = 0;
 	        try
 	        {
@@ -995,7 +1010,7 @@ namespace JsRt
 	
 	    public virtual T? GetProperty<T>(int index, T? defaultValue = default)
 	    {
-	        if (!TryGetProperty(index, out _, out var jsValue) || IsNullOfUndefined(jsValue))
+	        if (!TryGetProperty(index, out _, out var jsValue) || jsValue == null)
 	            return defaultValue;
 	
 	        if (typeof(T) == typeof(JsValue))
@@ -1003,7 +1018,7 @@ namespace JsRt
 	
 	        try
 	        {
-	            if (TryChangeType<T>(jsValue!.Value, out var value))
+	            if (TryChangeType<T>(jsValue.Value, out var value))
 	                return value;
 	
 	            return defaultValue;
@@ -1023,6 +1038,7 @@ namespace JsRt
 	            value = null;
 	            return false;
 	        }
+	
 	        value = new JsValue(valueHandle);
 	        return true;
 	    }
@@ -1041,7 +1057,7 @@ namespace JsRt
 	    {
 	        ArgumentNullException.ThrowIfNull(name);
 	        using var fn = GetProperty<JsValue>(name);
-	        if (IsNullOfUndefined(fn))
+	        if (fn == null)
 	        {
 	            value = default;
 	            return false;
@@ -1050,13 +1066,13 @@ namespace JsRt
 	        JsValue? jsValue = null;
 	        try
 	        {
-	            if (!fn!.TryCall(out var error, out jsValue, arguments) || IsNullOfUndefined(jsValue))
+	            if (!fn.TryCall(out var error, out jsValue, arguments) || jsValue == null)
 	            {
 	                value = default;
 	                return false;
 	            }
 	
-	            return TryChangeType(jsValue!.Value, out value);
+	            return TryChangeType(jsValue.Value, out value);
 	        }
 	        finally
 	        {
@@ -1064,8 +1080,9 @@ namespace JsRt
 	        }
 	    }
 	
-	    public virtual object? Call(params object?[]? arguments)
+	    public virtual object? Call(params object?[] arguments)
 	    {
+	        ArgumentNullException.ThrowIfNull(arguments);
 	        var args = Convert(arguments);
 	        try
 	        {
@@ -1077,9 +1094,10 @@ namespace JsRt
 	        }
 	    }
 	
-	    public virtual object? Call(JsValue?[]? arguments)
+	    public virtual object? Call(JsValue[] arguments)
 	    {
-	        if (!TryCall(out var error, out var jsValue, arguments) || IsNullOfUndefined(jsValue))
+	        ArgumentNullException.ThrowIfNull(arguments);
+	        if (!TryCall(out var error, out var jsValue, arguments) || jsValue == null)
 	        {
 	            if (error != null)
 	                throw error;
@@ -1089,15 +1107,15 @@ namespace JsRt
 	
 	        try
 	        {
-	            return jsValue!.Value;
+	            return jsValue.Value;
 	        }
 	        finally
 	        {
-	            jsValue!.Dispose();
+	            jsValue.Dispose();
 	        }
 	    }
 	
-	    public virtual bool TryCall(out Exception? error, out JsValue? value, params object?[]? arguments)
+	    public virtual bool TryCall(out Exception? error, out JsValue? value, params object?[] arguments)
 	    {
 	        var args = Convert(arguments);
 	        try
@@ -1110,30 +1128,23 @@ namespace JsRt
 	        }
 	    }
 	
-	    public virtual bool TryCall(out Exception? error, out JsValue? value, JsValue?[]? arguments)
+	    public virtual bool TryCall(out Exception? error, out JsValue? value, JsValue[] arguments, bool throwOnError = true)
 	    {
+	        ArgumentNullException.ThrowIfNull(arguments);
 	        var args = new List<nint>();
-	        if (arguments != null)
+	        foreach (var arg in arguments)
 	        {
-	            foreach (var arg in arguments)
-	            {
-	                if (arg == null)
-	                {
-	                    args.Add(0);
-	                    continue;
-	                }
-	                args.Add(arg.Handle);
-	            }
+	            args.Add(arg.Handle);
 	        }
 	
-	        error = JsRuntime.Check(JsRuntime.JsCallFunction(Handle, [.. args], (ushort)args.Count, out var result), false);
+	        error = JsRuntime.Check(JsRuntime.JsCallFunction(Handle, [.. args], (ushort)args.Count, out var handle), throwOnError);
 	        if (error != null)
 	        {
 	            value = null;
 	            return false;
 	        }
 	
-	        value = new JsValue(result);
+	        value = new JsValue(handle);
 	        return true;
 	    }
 	
@@ -1144,29 +1155,30 @@ namespace JsRt
 	        var h = Interlocked.Exchange(ref _handle, 0);
 	        if (h != 0)
 	        {
-	            JsRuntime.Release(h, true, out var count);
-	            if (count > MaxRefCount)
-	            {
-	                MaxRefCount = count;
-	            }
+	            JsRuntime.Release(h);
 	        }
 	    }
 	
-	    public static int MaxRefCount { get; set; }
-	
-	    public static JsValue FromObject(object? value)
+	    public static JsValue FromObject(object? value, bool throwOnError = true)
 	    {
-	        VariantToValue(value, true, out var handle);
-	        var jsv = new JsValue(handle);
-	        JsRuntime.AddRef(handle, true, out var count);
-	        if (count > MaxRefCount)
+	        if (value is JsValue jsv)
+	            return jsv;
+	
+	        var error = VariantToValue(value, true, out var handle);
+	        if (error != null)
 	        {
-	            MaxRefCount = count;
+	            if (throwOnError)
+	                throw new JsRuntimeException(error);
+	
+	            if (JsContext.Current == null)
+	                throw new JsRuntimeException("No current context available to convert the value.");
+	
+	            return JsContext.Current.Null;
 	        }
-	        return jsv;
+	
+	        return new JsValue(handle);
 	    }
 	
-	    public static bool IsNullOfUndefined(object? obj) => obj is null || IsUndefined(obj);
 	    public static bool IsUndefined(object? obj) => obj is JsValue jsv && jsv.ValueType == JsValueType.JsUndefined;
 	
 	    public static bool TryChangeType<T>(object? input, out T? value)
@@ -1212,25 +1224,16 @@ namespace JsRt
 	        return error;
 	    }
 	
-	    private static void Dispose(IEnumerable<JsValue>? arguments)
+	    private static void Dispose(IEnumerable<JsValue> arguments)
 	    {
-	        if (arguments == null)
-	            return;
-	
 	        foreach (var arg in arguments)
 	        {
-	            if (arg == null)
-	                continue;
-	
 	            arg.Dispose();
 	        }
 	    }
 	
-	    private static JsValue[]? Convert(object?[]? arguments)
+	    private static JsValue[] Convert(object?[] arguments)
 	    {
-	        if (arguments == null || arguments.Length == 0)
-	            return null;
-	
 	        var values = new JsValue[arguments.Length];
 	        for (var i = 0; i < arguments.Length; i++)
 	        {
