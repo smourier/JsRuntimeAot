@@ -144,12 +144,15 @@ public class JsContext : IDisposable
         }
     }
 
-    internal JsValue[] Convert(object?[] arguments)
+    internal JsValue[] Convert(object?[]? arguments)
     {
-        var values = new JsValue[arguments.Length];
-        for (var i = 0; i < arguments.Length; i++)
+        var values = new JsValue[arguments?.Length ?? 0];
+        if (arguments != null)
         {
-            values[i] = ObjectToValue(arguments[i]);
+            for (var i = 0; i < arguments.Length; i++)
+            {
+                values[i] = ObjectToValue(arguments[i]);
+            }
         }
         return values;
     }

@@ -50,11 +50,6 @@ namespace JsRt
 {
 	public class JsContext : IDisposable
 	{
-	    private readonly Lazy<JsValue> _undefined = new(() => { JsRuntime.JsGetUndefinedValue(out var handle); return new(handle); });
-	    private readonly Lazy<JsValue> _null = new(() => { JsRuntime.JsGetNullValue(out var handle); return new(handle); });
-	    private readonly Lazy<JsValue> _true = new(() => { JsRuntime.JsGetTrueValue(out var handle); return new(handle); });
-	    private readonly Lazy<JsValue> _false = new(() => { JsRuntime.JsGetFalseValue(out var handle); return new(handle); });
-	    private readonly Lazy<JsValue> _go = new(() => { JsRuntime.Check(JsRuntime.JsGetGlobalObject(out var handle)); return new JsValue(handle); });
 	    private nint _handle;
 	
 	    public JsContext(nint handle, bool addRef)
@@ -79,11 +74,6 @@ namespace JsRt
 	        }
 	    }
 	
-	    public JsValue GlobalObject => _go.Value;
-	    public JsValue Undefined => _undefined.Value;
-	    public JsValue True => _true.Value;
-	    public JsValue False => _false.Value;
-	    public JsValue Null => _null.Value;
 	    public JsRuntime? Runtime
 	    {
 	        get
@@ -96,6 +86,8 @@ namespace JsRt
 	        }
 	    }
 	
+	#pragma warning disable IDE0079 // Remove unnecessary suppression
+	#pragma warning disable CA1822 // Mark members as static
 	    public Version? EngineVersion
 	    {
 	        get
@@ -108,9 +100,17 @@ namespace JsRt
 	        }
 	    }
 	
+	    public JsValue Undefined { get { JsRuntime.JsGetUndefinedValue(out var handle); return new(handle); } }
+	    public JsValue Null { get { JsRuntime.JsGetNullValue(out var handle); return new(handle); } }
+	    public JsValue True { get { JsRuntime.JsGetTrueValue(out var handle); return new(handle); } }
+	    public JsValue False { get { JsRuntime.JsGetFalseValue(out var handle); return new(handle); } }
+	    public JsValue GlobalObject { get { JsRuntime.Check(JsRuntime.JsGetGlobalObject(out var handle)); return new JsValue(handle); } }
+	#pragma warning restore CA1822 // Mark members as static
+	#pragma warning restore IDE0079 // Remove unnecessary suppression
+	
 	    public override string ToString() => Handle.ToString();
 	
-	    public virtual void AddGlobalObject(string name, object? value)
+	    public void AddGlobalObject(string name, object? value)
 	    {
 	        ArgumentNullException.ThrowIfNull(name);
 	        if (value != null && !Marshal.IsTypeVisibleFromCom(value.GetType()) && !Marshal.IsComObject(value))
@@ -164,40 +164,45 @@ namespace JsRt
 	        }
 	    }
 	
+	    public JsValue ObjectToValue(object? value, bool throwOnError = true)
+	    {
+	        if (value is JsValue jsv)
+	            return jsv;
+	
+	        var error = VariantToValue(value, throwOnError, out var handle);
+	        if (error != null)
+	        {
+	            if (throwOnError)
+	                throw new JsRuntimeException(error);
+	
+	            return Null;
+	        }
+	
+	        return new JsValue(handle);
+	    }
+	
 	    ~JsContext() { Dispose(disposing: false); }
 	    public void Dispose() { Dispose(disposing: true); GC.SuppressFinalize(this); }
 	    protected virtual void Dispose(bool disposing)
 	    {
-	        if (_go.IsValueCreated)
-	        {
-	            _go.Value?.Dispose();
-	        }
-	
-	        if (_null.IsValueCreated)
-	        {
-	            _null.Value?.Dispose();
-	        }
-	
-	        if (_true.IsValueCreated)
-	        {
-	            _true.Value?.Dispose();
-	        }
-	
-	        if (_false.IsValueCreated)
-	        {
-	            _false.Value?.Dispose();
-	        }
-	
-	        if (_undefined.IsValueCreated)
-	        {
-	            _undefined.Value?.Dispose();
-	        }
-	
 	        var handle = Interlocked.Exchange(ref _handle, 0);
 	        if (handle != 0)
 	        {
 	            JsRuntime.Release(handle);
 	        }
+	    }
+	
+	    internal JsValue[] Convert(object?[]? arguments)
+	    {
+	        var values = new JsValue[arguments?.Length ?? 0];
+	        if (arguments != null)
+	        {
+	            for (var i = 0; i < arguments.Length; i++)
+	            {
+	                values[i] = ObjectToValue(arguments[i]);
+	            }
+	        }
+	        return values;
 	    }
 	
 	    public static JsContext? Current
@@ -209,6 +214,18 @@ namespace JsRt
 	        }
 	        set => JsRuntime.JsSetCurrentContext(value != null ? value.Handle : 0);
 	    }
+	
+	#pragma warning disable IDE0079 // Remove unnecessary suppression
+	#pragma warning disable CA1822 // Mark members as static
+	    internal Exception? VariantToValue(object? value, bool throwOnError, out nint handle)
+	    {
+	        using var v = new Variant(value);
+	        var error = JsRuntime.Check(JsRuntime.JsVariantToValue(v.Detached, out handle), throwOnError);
+	        return error;
+	    }
+	
+	#pragma warning restore CA1822 // Mark members as static
+	#pragma warning restore IDE0079 // Remove unnecessary suppression
 	}
 	
 	public enum JsErrorCode
@@ -354,7 +371,7 @@ namespace JsRt
 	        Check(JsCollectGarbage(Handle));
 	    }
 	
-	    private void CheckDisposed() => ObjectDisposedException.ThrowIf(_handle == 0, "Engine has been disposed.");
+	    private void CheckDisposed() => ObjectDisposedException.ThrowIf(_handle == 0, nameof(JsRuntime));
 	
 	    public virtual JsContext CreateContext()
 	    {
@@ -909,7 +926,7 @@ namespace JsRt
 	    public virtual bool TrySetProperty(string name, object? value, bool useStrictRules, out Exception? error)
 	    {
 	        ArgumentNullException.ThrowIfNull(name);
-	
+	        var context = Context;
 	        nint id = 0;
 	        nint valueHandle = 0;
 	        error = null;
@@ -923,7 +940,7 @@ namespace JsRt
 	                throw new JsRuntimeException("JsGetPropertyIdFromName returned an incorrect value.");
 	
 	            JsRuntime.AddRef(id);
-	            error = VariantToValue(value, false, out valueHandle);
+	            error = context.VariantToValue(value, false, out valueHandle);
 	            if (error != null)
 	                return false;
 	
@@ -944,11 +961,12 @@ namespace JsRt
 	    public bool SetProperty(int index, object value) => TrySetProperty(index, value, out _);
 	    public virtual bool TrySetProperty(int index, object? value, out Exception? error)
 	    {
-	        error = VariantToValue(value, false, out var valueHandle);
+	        var context = Context;
+	        error = context.VariantToValue(value, false, out var valueHandle);
 	        if (error != null)
 	            return false;
 	
-	        using var jsValue = FromObject(index);
+	        using var jsValue = context.ObjectToValue(index);
 	        error = JsRuntime.Check(JsRuntime.JsSetIndexedProperty(Handle, jsValue.Handle, valueHandle));
 	        return error == null;
 	    }
@@ -1028,7 +1046,8 @@ namespace JsRt
 	
 	    public virtual bool TryGetProperty(int index, out Exception? error, out JsValue? value)
 	    {
-	        using var iv = FromObject(index);
+	        var context = Context;
+	        using var iv = context.ObjectToValue(index);
 	        error = JsRuntime.Check(JsRuntime.JsGetIndexedProperty(Handle, iv.Handle, out nint valueHandle), false);
 	        if (error != null)
 	        {
@@ -1040,8 +1059,8 @@ namespace JsRt
 	        return true;
 	    }
 	
-	    public virtual object? CallFunction(string name, params object[] arguments) => CallFunction<object?>(name, arguments);
-	    public virtual T? CallFunction<T>(string name, params object[] arguments)
+	    public virtual object? CallFunction(string name, params object?[]? arguments) => CallFunction<object?>(name, arguments);
+	    public virtual T? CallFunction<T>(string name, params object?[]? arguments)
 	    {
 	        ArgumentNullException.ThrowIfNull(name);
 	        if (!TryCallFunction(name, out T? value, arguments))
@@ -1050,7 +1069,7 @@ namespace JsRt
 	        return value;
 	    }
 	
-	    public virtual bool TryCallFunction<T>(string name, out T? value, params object[] arguments)
+	    public virtual bool TryCallFunction<T>(string name, out T? value, params object?[]? arguments)
 	    {
 	        ArgumentNullException.ThrowIfNull(name);
 	        using var fn = GetProperty<JsValue>(name);
@@ -1079,7 +1098,8 @@ namespace JsRt
 	    public virtual object? Call(params object?[] arguments)
 	    {
 	        ArgumentNullException.ThrowIfNull(arguments);
-	        var args = Convert(arguments);
+	        var context = Context;
+	        var args = context.Convert(arguments);
 	        try
 	        {
 	            return Call(args);
@@ -1111,9 +1131,10 @@ namespace JsRt
 	        }
 	    }
 	
-	    public virtual bool TryCall(out Exception? error, out JsValue? value, params object?[] arguments)
+	    public virtual bool TryCall(out Exception? error, out JsValue? value, params object?[]? arguments)
 	    {
-	        var args = Convert(arguments);
+	        var context = Context;
+	        var args = context.Convert(arguments);
 	        try
 	        {
 	            return TryCall(out error, out value, args);
@@ -1155,25 +1176,11 @@ namespace JsRt
 	        }
 	    }
 	
-	    public static JsValue FromObject(object? value, bool throwOnError = true)
-	    {
-	        if (value is JsValue jsv)
-	            return jsv;
-	
-	        var error = VariantToValue(value, true, out var handle);
-	        if (error != null)
-	        {
-	            if (throwOnError)
-	                throw new JsRuntimeException(error);
-	
-	            if (JsContext.Current == null)
-	                throw new JsRuntimeException("No current context available to convert the value.");
-	
-	            return JsContext.Current.Null;
-	        }
-	
-	        return new JsValue(handle);
-	    }
+	#pragma warning disable IDE0079 // Remove unnecessary suppression
+	#pragma warning disable CA1822 // Mark members as static
+	    private JsContext Context => JsContext.Current ?? throw new InvalidOperationException("No active JavaScript context.");
+	#pragma warning restore CA1822 // Mark members as static
+	#pragma warning restore IDE0079 // Remove unnecessary suppression
 	
 	    public static bool IsUndefined(object? obj) => obj is JsValue jsv && jsv.ValueType == JsValueType.JsUndefined;
 	
@@ -1213,29 +1220,12 @@ namespace JsRt
 	        }
 	    }
 	
-	    private static Exception? VariantToValue(object? value, bool throwOnError, out nint handle)
-	    {
-	        using var v = new Variant(value);
-	        var error = JsRuntime.Check(JsRuntime.JsVariantToValue(v.Detached, out handle), throwOnError);
-	        return error;
-	    }
-	
 	    private static void Dispose(IEnumerable<JsValue> arguments)
 	    {
 	        foreach (var arg in arguments)
 	        {
 	            arg.Dispose();
 	        }
-	    }
-	
-	    private static JsValue[] Convert(object?[] arguments)
-	    {
-	        var values = new JsValue[arguments.Length];
-	        for (var i = 0; i < arguments.Length; i++)
-	        {
-	            values[i] = FromObject(arguments[i]);
-	        }
-	        return values;
 	    }
 	}
 	
@@ -2220,7 +2210,7 @@ namespace JsRt.Interop
 	    public static partial HRESULT SafeArrayGetUBound(in SAFEARRAY psa, uint nDim, out int plUbound);
 	}
 	
-	public partial struct HRESULT(int value) : IEquatable<HRESULT>, IFormattable
+	internal partial struct HRESULT(int value) : IEquatable<HRESULT>, IFormattable
 	{
 	    public static readonly HRESULT Null = new();
 	

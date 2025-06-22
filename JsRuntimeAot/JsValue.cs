@@ -288,8 +288,8 @@ public class JsValue : IDisposable
         return true;
     }
 
-    public virtual object? CallFunction(string name, params object[] arguments) => CallFunction<object?>(name, arguments);
-    public virtual T? CallFunction<T>(string name, params object[] arguments)
+    public virtual object? CallFunction(string name, params object?[]? arguments) => CallFunction<object?>(name, arguments);
+    public virtual T? CallFunction<T>(string name, params object?[]? arguments)
     {
         ArgumentNullException.ThrowIfNull(name);
         if (!TryCallFunction(name, out T? value, arguments))
@@ -298,7 +298,7 @@ public class JsValue : IDisposable
         return value;
     }
 
-    public virtual bool TryCallFunction<T>(string name, out T? value, params object[] arguments)
+    public virtual bool TryCallFunction<T>(string name, out T? value, params object?[]? arguments)
     {
         ArgumentNullException.ThrowIfNull(name);
         using var fn = GetProperty<JsValue>(name);
@@ -360,7 +360,7 @@ public class JsValue : IDisposable
         }
     }
 
-    public virtual bool TryCall(out Exception? error, out JsValue? value, params object?[] arguments)
+    public virtual bool TryCall(out Exception? error, out JsValue? value, params object?[]? arguments)
     {
         var context = Context;
         var args = context.Convert(arguments);

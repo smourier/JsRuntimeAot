@@ -1,6 +1,6 @@
 ﻿namespace JsRt.Interop;
 
-public partial struct HRESULT(int value) : IEquatable<HRESULT>, IFormattable
+internal partial struct HRESULT(int value) : IEquatable<HRESULT>, IFormattable
 {
     public static readonly HRESULT Null = new();
 

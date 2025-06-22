@@ -16,10 +16,7 @@ internal class Program
         rt.CreateContext().Execute(() =>
         {
             rt.RunScript("function square(n) { return n * n; }");
-            //rt.RunScript("function sayHello(msg1, msg2) {return msg1;}");
-
-            var result = JsContext.Current!.GlobalObject.CallFunction("square", 5);
-            //var result = JsContext.Current!.GlobalObject.CallFunction("sayHello", "héllo");
+            var result = JsContext.Current!.GlobalObject.CallFunction("square", null, 5);
             Console.WriteLine(result);
         });
     }
