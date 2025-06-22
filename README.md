@@ -1,5 +1,5 @@
 # JsRuntimeAot
-A .NET8+ AOT compatible wrapper over the Microsoft "Chakra" JavaScript engine. It allows you to run Javascript code from .NET.
+A .NET8+ AOT compatible wrapper over the Microsoft "Chakra" JavaScript engine. It's just one C# file that allows you to run Javascript code from .NET.
 
 # Why?
 Obviously, the [Chakra Javascript Engine](https://en.wikipedia.org/wiki/Chakra_(JavaScript_engine)) is deprecated, however using it has some advantages:
