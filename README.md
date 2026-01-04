@@ -1,7 +1,7 @@
 # JsRuntimeAot
 A .NET 10+ AOT compatible wrapper over the Microsoft "Chakra" JavaScript engine (aka JScript9.dll).
 
-=> It's just one 2500 lines of C# file that allows you to run Javascript code from .NET.
+=> It's [just one 2500 lines of C# file](https://github.com/smourier/JsRuntimeAot/blob/main/Amalgamation/Chakra.cs) that allows you to run Javascript code from .NET.
 
 # Why?
 Obviously, the [Chakra Javascript Engine](https://en.wikipedia.org/wiki/Chakra_(JavaScript_engine)) is deprecated, however using it has some advantages:
@@ -30,7 +30,7 @@ Console.WriteLine($"{input} => {sum}");
 using var rt = new JsRuntime();
 rt.WithContext(ctx =>
 {
-    input = "function hello(n) { return 'héééééllooooo'; }";
+    input = "function hello(n) { return 'hÃ©Ã©Ã©Ã©Ã©llooooo'; }";
     rt.RunScript(input);
     var result = ctx.GlobalObject.CallFunction("hello");
     Console.WriteLine($"{input} => {result}");
